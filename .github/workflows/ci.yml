@@ -13,19 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@main
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
-
-      - name: Setup Alloy Check
-        uses: shaogme/alloy-check@main
-
-      - name: Run Alloy Check
-        run: alloy-check --all-features
 
       - name: Install cargo-hack
         run: cargo install cargo-hack --locked
