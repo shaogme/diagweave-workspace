@@ -8,7 +8,6 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 authors = ["Shao G. <shaogme@gmail.com>"]
@@ -23,7 +22,7 @@ categories = ["rust-patterns", "development-tools::debugging"]
 [workspace.dependencies]
 
 # Internal Crates
-diagweave = { path = "diagweave", version = "0.1.0" }
+diagweave = { path = "diagweave", version = "0.1.1" }
 diagweave-macros = { path = "diagweave-macros", version = "0.1.0" }
 
 # External Crates
