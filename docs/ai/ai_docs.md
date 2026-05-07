@@ -468,14 +468,19 @@ Provides pipelines for seamless diagnostic info injection on error paths by impl
 
 #### 2. `ResultReportExt` (on `Result<T, Report<E>>`)
 Instead of duplicating every `Report` method, this trait provides a single combinator:
-- `and_then_report(|r| r.with_ctx(...).with_severity(...))` — applies any chain of `Report` builder methods on the error path only
+- `and_then_report(|r| ...)` — apply any chain of `Report` builder methods on the error path
+- `with_ctx()`, `attach_note()`, `set_severity()`, etc. — all `Report` builder methods are available directly on `Result<T, Report<E>>` and only execute on the `Err` path
+- `map_report_err(|e| Outer::from(e))` — transform the inner error type while preserving all diagnostics
+- `into_report_inner()` — discard diagnostics and return `Result<T, E>`
 
 The closure receives an owned `Report` and must return an owned `Report`. On the `Ok` path the closure is never invoked, providing natural lazy semantics.
 
 #### 3. `InspectReportExt` (on `Result<T, Report<E>>`)
 Read-only helpers for error-path inspection without manually matching `Err`:
-- `report_ref()`, `report_metadata()`, `report_attachments()`
+- `report_ref()`, `report_inner()`, `report_metadata()`, `report_attachments()`
 - `report_error_code()`, `report_severity()`, `report_category()`, `report_retryable()`
+- `report_context()`, `report_system()`, `report_stack_trace()`, `report_options()`, `report_display_causes()`
+- `report_iter_origin_sources()`, `report_iter_diag_sources()`
 
 
 ### Usage Example
@@ -489,14 +494,21 @@ fn process() -> Result<(), Report<io::Error, HasSeverity>> {
     let timestamp_key = "timestamp";
     fs::read_to_string("config.toml")
         .to_report()
-        .and_then_report(|r| {
-            r.with_ctx(file_key, "config.toml")
-                .with_severity(Severity::Warn)
-                .with_ctx(timestamp_key, ContextValue::String(format!("{:?}", SystemTime::now()).into()))
-                .attach_printable("failed to load system config")
-        })?;
+        .with_ctx(file_key, "config.toml")
+        .with_severity(Severity::Warn)
+        .with_ctx(timestamp_key, ContextValue::String(format!("{:?}", SystemTime::now()).into()))
+        .attach_printable("failed to load system config")
+        .set_severity(Severity::Error)?;
         
     Ok(())
+}
+
+// Example: Mapping error types while preserving diagnostics
+fn boundary_op() -> Result<String, Report<io::Error>> {
+    fs::read_to_string("config.toml")
+        .to_report()
+        .map_report_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        .and_then_report(|r| r.attach_note("captured at boundary"))
 }
 ```
 

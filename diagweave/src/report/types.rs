@@ -176,6 +176,14 @@ impl<State: SeverityState> ReportMetadata<State> {
     pub fn retryable(&self) -> Option<bool> {
         self.inner.as_ref()?.retryable
     }
+
+    /// Transitions the metadata to the `HasSeverity` state with the given severity.
+    pub(crate) fn into_has_severity(self, severity: Severity) -> ReportMetadata<HasSeverity> {
+        ReportMetadata {
+            severity: HasSeverity::new(severity),
+            inner: self.inner,
+        }
+    }
 }
 
 impl ReportMetadata<MissingSeverity> {
