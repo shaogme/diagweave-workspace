@@ -223,7 +223,7 @@ impl<const N: usize> Display for HexId<N> {
 /// 16-byte trace id encoded as 32 lowercase hex chars.
 pub type TraceId = HexId<32>;
 
-#[cfg(feature = "otel")]
+#[cfg(feature = "opentelemetry")]
 impl TryFrom<opentelemetry::TraceId> for TraceId {
     type Error = &'static str;
     fn try_from(value: opentelemetry::TraceId) -> Result<Self, Self::Error> {
@@ -234,7 +234,7 @@ impl TryFrom<opentelemetry::TraceId> for TraceId {
 /// 8-byte span id encoded as 16 lowercase hex chars.
 pub type SpanId = HexId<16>;
 
-#[cfg(feature = "otel")]
+#[cfg(feature = "opentelemetry")]
 impl TryFrom<opentelemetry::SpanId> for SpanId {
     type Error = &'static str;
     fn try_from(value: opentelemetry::SpanId) -> Result<Self, Self::Error> {
