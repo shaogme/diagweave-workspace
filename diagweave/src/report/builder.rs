@@ -44,7 +44,7 @@ where
         key: impl Into<StaticRefStr>,
         value: impl Into<ContextValue>,
     ) -> Self {
-        self.diagnostics_mut().insert_context(key, value);
+        Report::<E, State>::diagnostics_mut(&mut self).insert_context(key, value);
         self
     }
 
@@ -72,7 +72,7 @@ where
         key: impl Into<StaticRefStr>,
         value: impl Into<ContextValue>,
     ) -> Self {
-        self.diagnostics_mut().insert_system(key, value);
+        Report::<E, State>::diagnostics_mut(&mut self).insert_system(key, value);
         self
     }
 
@@ -100,7 +100,7 @@ where
     /// let report = Report::new(MyError).set_system(system);
     /// ```
     pub fn set_system(mut self, system: ContextMap) -> Self {
-        *self.diagnostics_mut().system_mut() = system;
+        *Report::<E, State>::diagnostics_mut(&mut self).system_mut() = system;
         self
     }
 
@@ -128,7 +128,7 @@ where
     /// let report = Report::new(MyError).set_ctx(ctx);
     /// ```
     pub fn set_ctx(mut self, ctx: ContextMap) -> Self {
-        *self.diagnostics_mut().context_mut() = ctx;
+        *Report::<E, State>::diagnostics_mut(&mut self).context_mut() = ctx;
         self
     }
 
@@ -153,8 +153,7 @@ where
     ///     .attach_printable("User was attempting to checkout cart #12345");
     /// ```
     pub fn attach_printable(mut self, message: impl Display + Send + Sync + 'static) -> Self {
-        self.diagnostics_mut()
-            .add_attachment(Attachment::note(message));
+        Report::<E, State>::diagnostics_mut(&mut self).add_attachment(Attachment::note(message));
         self
     }
 
@@ -184,7 +183,7 @@ where
         value: impl Into<AttachmentValue>,
         media_type: Option<impl Into<StaticRefStr>>,
     ) -> Self {
-        self.diagnostics_mut()
+        Report::<E, State>::diagnostics_mut(&mut self)
             .add_attachment(Attachment::payload(name, value, media_type));
         self
     }
@@ -193,7 +192,7 @@ where
     ///
     /// This is a convenience alias for [`Report::attach_printable`].
     pub fn attach_note(self, message: impl Display + Send + Sync + 'static) -> Self {
-        self.attach_printable(message)
+        Report::<E, State>::attach_printable(self, message)
     }
 
     /// Sets the metadata for the report.
@@ -390,7 +389,7 @@ where
     /// # }
     /// ```
     pub fn set_stack_trace(mut self, stack_trace: StackTrace) -> Self {
-        self.diagnostics_mut().set_stack_trace(stack_trace);
+        Report::<E, State>::diagnostics_mut(&mut self).set_stack_trace(stack_trace);
         self
     }
 
@@ -416,8 +415,8 @@ where
     /// # }
     /// ```
     pub fn with_stack_trace(mut self, stack_trace: StackTrace) -> Self {
-        if self.stack_trace().is_none() {
-            self.diagnostics_mut().set_stack_trace(stack_trace);
+        if Report::<E, State>::stack_trace(&self).is_none() {
+            Report::<E, State>::diagnostics_mut(&mut self).set_stack_trace(stack_trace);
         }
         self
     }
@@ -427,7 +426,7 @@ where
     /// This can be useful when you want to remove potentially sensitive
     /// stack information before serializing or logging.
     pub fn clear_stack_trace(mut self) -> Self {
-        *self.diagnostics_mut().stack_trace_mut() = None;
+        *Report::<E, State>::diagnostics_mut(&mut self).stack_trace_mut() = None;
         self
     }
 
@@ -450,8 +449,8 @@ where
     /// ```
     #[cfg(feature = "std")]
     pub fn capture_stack_trace(mut self) -> Self {
-        if self.stack_trace().is_none() {
-            self.diagnostics_mut()
+        if Report::<E, State>::stack_trace(&self).is_none() {
+            Report::<E, State>::diagnostics_mut(&mut self)
                 .set_stack_trace(StackTrace::capture_raw());
         }
         self
@@ -476,8 +475,7 @@ where
     /// ```
     #[cfg(feature = "std")]
     pub fn force_capture_stack(mut self) -> Self {
-        self.diagnostics_mut()
-            .set_stack_trace(StackTrace::capture_raw());
+        Report::<E, State>::diagnostics_mut(&mut self).set_stack_trace(StackTrace::capture_raw());
         self
     }
 
@@ -502,7 +500,7 @@ where
     ///     .with_display_cause("Connection timeout after 30s");
     /// ```
     pub fn with_display_cause(mut self, cause: impl Display + Send + Sync + 'static) -> Self {
-        self.diagnostics_mut()
+        Report::<E, State>::diagnostics_mut(&mut self)
             .display_causes_mut()
             .get_or_insert_with(DisplayCauseChain::default)
             .items
@@ -515,7 +513,7 @@ where
     /// This method completely replaces any existing display causes with
     /// the provided chain.
     pub fn set_display_causes(mut self, display_causes: DisplayCauseChain) -> Self {
-        self.diagnostics_mut().set_display_causes(display_causes);
+        Report::<E, State>::diagnostics_mut(&mut self).set_display_causes(display_causes);
         self
     }
 
@@ -545,7 +543,7 @@ where
         I: IntoIterator<Item = T>,
         T: Display + Send + Sync + 'static,
     {
-        self.diagnostics_mut()
+        Report::<E, State>::diagnostics_mut(&mut self)
             .display_causes_mut()
             .get_or_insert_with(DisplayCauseChain::default)
             .items
@@ -594,7 +592,7 @@ where
     /// This method completely replaces any existing diagnostic source
     /// errors with the provided chain.
     pub fn set_diag_src_errs(mut self, source_errors: SourceErrorChain) -> Self {
-        self.diagnostics_mut().set_diag_src_errors(source_errors);
+        Report::<E, State>::diagnostics_mut(&mut self).set_diag_src_errors(source_errors);
         self
     }
 

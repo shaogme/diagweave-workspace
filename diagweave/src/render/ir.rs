@@ -1,3 +1,4 @@
+use alloc::borrow::Cow;
 use alloc::string::ToString;
 use alloc::sync::Arc;
 #[cfg(feature = "trace")]
@@ -8,7 +9,6 @@ use core::fmt::{self, Display, Formatter};
 use ref_str::RefStr;
 #[cfg(any(feature = "trace", feature = "otel", feature = "json"))]
 use ref_str::StaticRefStr;
-use std::borrow::Cow;
 
 #[cfg(feature = "json")]
 use crate::render_impl::REPORT_JSON_SCHEMA_VERSION;
@@ -230,33 +230,42 @@ where
     where
         E: Error,
     {
-        let metadata = self.metadata();
-        let display_causes_state = self
-            .visit_causes_ext(self.options().as_cause_options(), |_| Ok(()))
-            .unwrap_or_default();
+        let metadata = Report::<E, State>::metadata(self);
+        let display_causes_state = Report::<E, State>::visit_causes_ext(
+            self,
+            Report::<E, State>::options(self).as_cause_options(),
+            |_| Ok(()),
+        )
+        .unwrap_or_default();
         DiagnosticIr {
             #[cfg(feature = "json")]
             schema_version: REPORT_JSON_SCHEMA_VERSION.into(),
             error: DiagnosticIrErrorNode {
-                message: DiagnosticIrMessage::Display(self.inner()),
+                message: DiagnosticIrMessage::Display(Report::<E, State>::inner(self)),
                 r#type: any::type_name::<E>().into(),
             },
             metadata: DiagnosticIrMetadata {
                 error_code: metadata.error_code(),
-                severity: self.severity_state(),
+                severity: Report::<E, State>::severity_state(self),
                 category: metadata.category(),
                 retryable: metadata.retryable(),
-                stack_trace: self.stack_trace(),
+                stack_trace: Report::<E, State>::stack_trace(self),
             },
             #[cfg(feature = "trace")]
-            trace: self.trace(),
-            context: self.context(),
-            system: self.system(),
-            attachments: self.attachments(),
-            display_causes: self.display_causes(),
+            trace: Report::<E, State>::trace(self),
+            context: Report::<E, State>::context(self),
+            system: Report::<E, State>::system(self),
+            attachments: Report::<E, State>::attachments(self),
+            display_causes: Report::<E, State>::display_causes(self),
             display_causes_state,
-            origin_source_errors: self.origin_src_err_view(self.options().as_cause_options()),
-            diagnostic_source_errors: self.diag_src_err_view(self.options().as_cause_options()),
+            origin_source_errors: Report::<E, State>::origin_src_err_view(
+                self,
+                Report::<E, State>::options(self).as_cause_options(),
+            ),
+            diagnostic_source_errors: Report::<E, State>::diag_src_err_view(
+                self,
+                Report::<E, State>::options(self).as_cause_options(),
+            ),
         }
     }
 }

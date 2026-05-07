@@ -7,14 +7,12 @@
 #[cfg(feature = "std")]
 use std::sync::OnceLock;
 
-#[cfg(feature = "std")]
-use alloc::boxed::Box;
-
 #[cfg(feature = "trace")]
 use super::trace::ReportTrace;
 #[cfg(feature = "std")]
 use super::types::GlobalContext;
-use super::{Report, ReportMetadata, ReportOptions, SeverityState};
+use super::{MissingSeverity, Report, ReportMetadata, ReportOptions, SeverityState};
+use alloc::boxed::Box;
 
 /// Context injector type alias for global context providers.
 ///
@@ -309,7 +307,7 @@ impl<E> Report<E, crate::report::MissingSeverity> {
         Report {
             inner,
             data: Box::new(super::ReportData {
-                metadata: metadata.set_severity(severity),
+                metadata: ReportMetadata::<MissingSeverity>::set_severity(metadata, severity),
                 options,
                 #[cfg(feature = "trace")]
                 trace,

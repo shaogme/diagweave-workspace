@@ -209,33 +209,33 @@ where
 {
     /// Returns a renderer for compact output.
     pub fn compact(&self) -> RenderedReport<'_, E, State, Compact> {
-        self.render(Compact::summary())
+        Report::<E, State>::render(self, Compact::summary())
     }
 
     /// Returns a renderer for summary compact output.
     pub fn compact_summary(&self) -> RenderedReport<'_, E, State, Compact> {
-        self.render(Compact::summary())
+        Report::<E, State>::render(self, Compact::summary())
     }
 
     /// Returns a renderer for full compact key-value output.
     pub fn compact_full(&self) -> RenderedReport<'_, E, State, Compact> {
-        self.render(Compact::full())
+        Report::<E, State>::render(self, Compact::full())
     }
 
     /// Returns a renderer for pretty-printed output.
     pub fn pretty(&self) -> RenderedReport<'_, E, State, Pretty> {
-        self.render(Pretty::default())
+        Report::<E, State>::render(self, Pretty::default())
     }
 
     /// Returns a renderer for JSON output.
     #[cfg(feature = "json")]
     pub fn json(&self) -> RenderedReport<'_, E, State, Json> {
-        self.render(Json::default())
+        Report::<E, State>::render(self, Json::default())
     }
 
     /// Returns a renderer for the given renderer implementation.
     pub fn render<R>(&self, renderer: R) -> RenderedReport<'_, E, State, R> {
-        RenderedReport {
+        RenderedReport::<E, State, R> {
             report: self,
             renderer,
         }
@@ -246,7 +246,7 @@ where
     where
         E: core::error::Error,
     {
-        self.render(Compact::summary()).to_string()
+        Report::<E, State>::render(self, Compact::summary()).to_string()
     }
 
     /// Returns a snapshot-ready pretty-printed string.
@@ -254,7 +254,7 @@ where
     where
         E: core::error::Error,
     {
-        self.render(Pretty::default()).to_string()
+        Report::<E, State>::render(self, Pretty::default()).to_string()
     }
 
     /// Returns a snapshot-ready JSON string.
@@ -263,7 +263,7 @@ where
     where
         E: core::error::Error,
     {
-        self.render(Json::default()).to_string()
+        Report::<E, State>::render(self, Json::default()).to_string()
     }
 }
 
@@ -289,7 +289,7 @@ where
 {
     fn render(&self, report: &Report<E, State>, f: &mut Formatter<'_>) -> fmt::Result {
         match self.profile {
-            CompactProfile::Summary => write!(f, "{}", report.inner()),
+            CompactProfile::Summary => write!(f, "{}", Report::<E, State>::inner(report)),
             CompactProfile::Full => write!(f, "{report}"),
         }
     }

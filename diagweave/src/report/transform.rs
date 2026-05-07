@@ -7,6 +7,7 @@ use core::error::Error;
 
 use super::types::build_origin_source_chain;
 use super::{Report, SeverityState};
+use alloc::boxed::Box;
 
 impl<E, State> Report<E, State>
 where
@@ -169,7 +170,7 @@ impl<E> Report<E, super::HasSeverity> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::report::{MissingSeverity, Severity};
+    use crate::report::{HasSeverity, MissingSeverity, Report, Severity};
 
     #[derive(Debug)]
     struct TestError;
@@ -202,14 +203,16 @@ mod tests {
     #[test]
     fn test_map_err_preserves_severity() {
         let report: Report<TestError, MissingSeverity> = Report::new(TestError);
-        let mapped: Report<OuterError, MissingSeverity> = report.map_err(|_| OuterError);
-        assert!(mapped.severity().is_none());
+        let mapped: Report<OuterError, MissingSeverity> =
+            Report::<TestError, MissingSeverity>::map_err(report, |_| OuterError);
+        assert!(Report::<OuterError, MissingSeverity>::severity(&mapped).is_none());
     }
 
     #[test]
     fn test_map_err_with_severity() {
-        let report = Report::new(TestError).set_severity(Severity::Error);
-        let mapped = report.map_err(|_| OuterError);
+        let report = Report::<TestError, MissingSeverity>::new(TestError);
+        let report = Report::<TestError, MissingSeverity>::set_severity(report, Severity::Error);
+        let mapped: Report<OuterError, HasSeverity> = report.map_err(|_| OuterError);
         assert_eq!(mapped.severity(), Some(Severity::Error));
     }
 }

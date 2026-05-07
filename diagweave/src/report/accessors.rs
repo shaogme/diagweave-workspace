@@ -84,7 +84,7 @@ where
     /// assert!(!attachments.is_empty());
     /// ```
     pub fn attachments(&self) -> &[Attachment] {
-        self.diagnostics().attachments()
+        Report::<E, State>::diagnostics(self).attachments()
     }
 
     /// Returns context key-value pairs associated with the report.
@@ -107,7 +107,7 @@ where
     /// assert!(context.contains_key("user_id"));
     /// ```
     pub fn context(&self) -> &ContextMap {
-        self.diagnostics().context()
+        Report::<E, State>::diagnostics(self).context()
     }
 
     /// Returns system context associated with the report.
@@ -130,7 +130,7 @@ where
     /// assert!(system.contains_key("hostname"));
     /// ```
     pub fn system(&self) -> &ContextMap {
-        self.diagnostics().system()
+        Report::<E, State>::diagnostics(self).system()
     }
 
     /// Visits attachments in insertion order without building intermediate allocations.
@@ -169,7 +169,7 @@ where
     where
         F: FnMut(AttachmentVisit<'_>) -> fmt::Result,
     {
-        for attachment in self.diagnostics().attachments() {
+        for attachment in Report::<E, State>::diagnostics(self).attachments() {
             match attachment {
                 Attachment::Note { message } => {
                     visit(AttachmentVisit::Note {
@@ -213,7 +213,7 @@ where
     /// assert!(!causes.is_empty());
     /// ```
     pub fn display_causes(&self) -> &[Arc<dyn Display + Send + Sync>] {
-        self.diagnostics()
+        Report::<E, State>::diagnostics(self)
             .display_causes()
             .map(|v| v.items.as_slice())
             .unwrap_or(&[])
@@ -222,7 +222,7 @@ where
     /// Returns the display-cause chain associated with the report, if any.
     #[cfg(feature = "json")]
     pub(crate) fn display_causes_chain(&self) -> Option<&DisplayCauseChain> {
-        self.diagnostics().display_causes()
+        Report::<E, State>::diagnostics(self).display_causes()
     }
 
     /// Returns source errors from the origin chain associated with the report.
@@ -256,7 +256,7 @@ where
     where
         E: Error,
     {
-        self.diagnostics()
+        Report::<E, State>::diagnostics(self)
             .origin_src_errors()
             .map(SourceErrorChain::iter_entries)
             .into_iter()
@@ -290,7 +290,7 @@ where
     where
         E: Error,
     {
-        self.diagnostics()
+        Report::<E, State>::diagnostics(self)
             .diag_src_errors()
             .map(SourceErrorChain::iter_entries)
             .into_iter()
@@ -300,13 +300,13 @@ where
     /// Returns the origin source-error chain associated with the report, if any.
     #[cfg(feature = "json")]
     pub(crate) fn origin_src_err_chain(&self) -> Option<&SourceErrorChain> {
-        self.diagnostics().origin_src_errors()
+        Report::<E, State>::diagnostics(self).origin_src_errors()
     }
 
     /// Returns the diagnostic source-error chain associated with the report, if any.
     #[cfg(feature = "json")]
     pub(crate) fn diag_src_err_chain(&self) -> Option<&SourceErrorChain> {
-        self.diagnostics().diag_src_errors()
+        Report::<E, State>::diagnostics(self).diag_src_errors()
     }
 
     /// Returns the metadata associated with the report.
@@ -328,7 +328,7 @@ where
     /// let metadata = report.metadata();
     /// ```
     pub fn metadata(&self) -> &ReportMetadata<State> {
-        self.metadata_ref()
+        Report::<E, State>::metadata_ref(self)
     }
 
     /// Returns the error code from report metadata, if present.
@@ -437,7 +437,7 @@ where
     /// # }
     /// ```
     pub fn stack_trace(&self) -> Option<&StackTrace> {
-        self.diagnostics().stack_trace()
+        Report::<E, State>::diagnostics(self).stack_trace()
     }
 
     /// Returns the current report options.
@@ -491,7 +491,11 @@ where
         F: FnMut(&dyn Display) -> fmt::Result,
         E: Error,
     {
-        self.visit_causes_ext(self.options().as_cause_options(), visit)
+        Report::<E, State>::visit_causes_ext(
+            self,
+            Report::<E, State>::options(self).as_cause_options(),
+            visit,
+        )
     }
 
     /// Visits display causes using custom collection options.
@@ -530,7 +534,7 @@ where
         F: FnMut(&dyn Display) -> fmt::Result,
     {
         let mut state = CauseTraversalState::default();
-        let diag = self.diagnostics();
+        let diag = Report::<E, State>::diagnostics(self);
         let Some(display_causes) = diag.display_causes() else {
             return Ok(state);
         };
@@ -583,7 +587,11 @@ where
         F: FnMut(SourceErrorEntry) -> fmt::Result,
         E: Error,
     {
-        self.visit_origin_src_ext(self.options().as_cause_options(), visit)
+        Report::<E, State>::visit_origin_src_ext(
+            self,
+            Report::<E, State>::options(self).as_cause_options(),
+            visit,
+        )
     }
 
     /// Visits origin source errors using custom collection options.
@@ -599,7 +607,7 @@ where
         F: FnMut(SourceErrorEntry) -> fmt::Result,
         E: Error,
     {
-        let mut iter = self.iter_origin_src_ext(options);
+        let mut iter = Report::<E, State>::iter_origin_src_ext(self, options);
         for err in iter.by_ref() {
             visit(err)?;
         }
@@ -615,7 +623,11 @@ where
         F: FnMut(SourceErrorEntry) -> fmt::Result,
         E: Error,
     {
-        self.visit_diag_srcs_ext(self.options().as_cause_options(), visit)
+        Report::<E, State>::visit_diag_srcs_ext(
+            self,
+            Report::<E, State>::options(self).as_cause_options(),
+            visit,
+        )
     }
 
     /// Visits diagnostic source errors using custom collection options.
@@ -631,7 +643,7 @@ where
         F: FnMut(SourceErrorEntry) -> fmt::Result,
         E: Error,
     {
-        let mut iter = self.iter_diag_srcs_ext(options);
+        let mut iter = Report::<E, State>::iter_diag_srcs_ext(self, options);
         for err in iter.by_ref() {
             visit(err)?;
         }
@@ -643,7 +655,7 @@ where
     where
         E: Error,
     {
-        ReportSourceErrorIter::new_origin(self, options)
+        ReportSourceErrorIter::new_origin::<E, State>(self, options)
     }
 
     /// Returns an iterator over diagnostic source errors with custom options.
@@ -651,7 +663,7 @@ where
     where
         E: Error,
     {
-        ReportSourceErrorIter::new_diagnostic(self, options)
+        ReportSourceErrorIter::new_diagnostic::<E, State>(self, options)
     }
 
     /// Iterates origin source errors using default collection options.
@@ -687,7 +699,10 @@ where
     where
         E: Error,
     {
-        self.iter_origin_src_ext(self.options().as_cause_options())
+        Report::<E, State>::iter_origin_src_ext(
+            self,
+            Report::<E, State>::options(self).as_cause_options(),
+        )
     }
 
     /// Iterates diagnostic source errors using default collection options.
@@ -719,6 +734,9 @@ where
     where
         E: Error,
     {
-        self.iter_diag_srcs_ext(self.options().as_cause_options())
+        Report::<E, State>::iter_diag_srcs_ext(
+            self,
+            Report::<E, State>::options(self).as_cause_options(),
+        )
     }
 }

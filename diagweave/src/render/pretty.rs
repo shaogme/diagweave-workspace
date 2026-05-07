@@ -37,30 +37,30 @@ where
         let options = self.options;
         render_error_section(
             f,
-            report.inner(),
+            Report::<E, State>::inner(report),
             core::any::type_name::<E>(),
             options.pretty_indent,
             options.show_type_name,
         )?;
-        render_governance_section(f, report, options)?;
+        render_governance_section::<E, State>(f, report, options)?;
         #[cfg(feature = "trace")]
-        render_trace_section(f, report, options)?;
+        render_trace_section::<E, State>(f, report, options)?;
         #[cfg(not(feature = "trace"))]
         if options.show_trace_section && options.show_empty_sections {
             writeln!(f, "Trace:")?;
             write_indent(f, options.pretty_indent)?;
             writeln!(f, "- (none)")?;
         }
-        render_stack_trace(f, report, options)?;
-        render_attachments(f, report, options)?;
-        render_display_causes(f, report, options)?;
+        render_stack_trace::<E, State>(f, report, options)?;
+        render_attachments::<E, State>(f, report, options)?;
+        render_display_causes::<E, State>(f, report, options)?;
         render_src_errors_section(
             f,
             report,
             options,
             "Origin Source Errors:",
             true,
-            Report::origin_src_err_view,
+            Report::<E, State>::origin_src_err_view,
         )?;
         render_src_errors_section(
             f,
@@ -68,7 +68,7 @@ where
             options,
             "Diagnostic Source Errors:",
             false,
-            Report::diag_src_err_view,
+            Report::<E, State>::diag_src_err_view,
         )?;
         Ok(())
     }
@@ -108,17 +108,18 @@ fn render_error_section(
     Ok(())
 }
 
-fn render_governance_section<State>(
+fn render_governance_section<E, State>(
     f: &mut Formatter<'_>,
-    report: &Report<impl Error, State>,
+    report: &Report<E, State>,
     options: ReportRenderOptions,
 ) -> fmt::Result
 where
+    E: Error,
     State: SeverityState,
 {
-    let metadata = report.metadata();
+    let metadata = Report::<E, State>::metadata(report);
     let has_metadata = metadata.error_code().is_some()
-        || report.severity().is_some()
+        || Report::<E, State>::severity(report).is_some()
         || metadata.category().is_some()
         || metadata.retryable().is_some();
 
@@ -128,7 +129,7 @@ where
             write_indent(f, options.pretty_indent)?;
             writeln!(f, "- (none)")?;
         } else {
-            render_gov_meta(f, report, options.pretty_indent)?;
+            render_gov_meta::<E, State>(f, report, options.pretty_indent)?;
         }
     }
     Ok(())
@@ -142,12 +143,12 @@ fn render_gov_meta<E, State>(
 where
     State: SeverityState,
 {
-    let metadata = report.metadata();
+    let metadata = Report::<E, State>::metadata(report);
     if let Some(error_code) = metadata.error_code() {
         write_indent(f, indent)?;
         writeln!(f, "- error_code: {error_code}")?;
     }
-    if let Some(severity) = report.severity() {
+    if let Some(severity) = Report::<E, State>::severity(report) {
         write_indent(f, indent)?;
         writeln!(f, "- severity: {severity}")?;
     }
@@ -163,15 +164,16 @@ where
 }
 
 #[cfg(feature = "trace")]
-fn render_trace_section<State>(
+fn render_trace_section<E, State>(
     f: &mut Formatter<'_>,
-    report: &Report<impl Error, State>,
+    report: &Report<E, State>,
     options: ReportRenderOptions,
 ) -> fmt::Result
 where
+    E: Error,
     State: SeverityState,
 {
-    let trace = report.trace();
+    let trace = Report::<E, State>::trace(report);
 
     if options.show_trace_section && (options.show_empty_sections || !trace.is_empty()) {
         writeln!(f, "Trace:")?;
@@ -230,15 +232,16 @@ where
     Ok(())
 }
 
-fn render_stack_trace<State>(
+fn render_stack_trace<E, State>(
     f: &mut Formatter<'_>,
-    report: &Report<impl Error, State>,
+    report: &Report<E, State>,
     options: ReportRenderOptions,
 ) -> fmt::Result
 where
+    E: Error,
     State: SeverityState,
 {
-    let stack_trace = report.stack_trace();
+    let stack_trace = Report::<E, State>::stack_trace(report);
     let has_stack = stack_trace.is_some();
     if !options.show_stack_trace_section || (!options.show_empty_sections && !has_stack) {
         return Ok(());
@@ -307,26 +310,28 @@ fn render_raw_stack_trace(
     Ok(())
 }
 
-fn render_attachments<State>(
+fn render_attachments<E, State>(
     f: &mut Formatter<'_>,
-    report: &Report<impl Error, State>,
+    report: &Report<E, State>,
     options: ReportRenderOptions,
 ) -> fmt::Result
 where
+    E: Error,
     State: SeverityState,
 {
-    render_system_section(f, report, options)?;
-    render_context_section(f, report, options)?;
-    render_attachment_section(f, report, options)?;
+    render_system_section::<E, State>(f, report, options)?;
+    render_context_section::<E, State>(f, report, options)?;
+    render_attachment_section::<E, State>(f, report, options)?;
     Ok(())
 }
 
-fn render_system_section<State>(
+fn render_system_section<E, State>(
     f: &mut Formatter<'_>,
-    report: &Report<impl Error, State>,
+    report: &Report<E, State>,
     options: ReportRenderOptions,
 ) -> fmt::Result
 where
+    E: Error,
     State: SeverityState,
 {
     if !options.show_context_section {
@@ -334,7 +339,7 @@ where
     }
 
     let mut wrote_header = false;
-    let system = report.system();
+    let system = Report::<E, State>::system(report);
     if !system.is_empty() {
         writeln!(f, "System:")?;
         wrote_header = true;
@@ -352,12 +357,13 @@ where
     Ok(())
 }
 
-fn render_context_section<State>(
+fn render_context_section<E, State>(
     f: &mut Formatter<'_>,
-    report: &Report<impl Error, State>,
+    report: &Report<E, State>,
     options: ReportRenderOptions,
 ) -> fmt::Result
 where
+    E: Error,
     State: SeverityState,
 {
     if !options.show_context_section {
@@ -365,7 +371,7 @@ where
     }
 
     let mut wrote_header = false;
-    let context = report.context();
+    let context = Report::<E, State>::context(report);
     for (key, value) in context.sorted_entries() {
         if !wrote_header {
             wrote_header = true;
@@ -383,12 +389,13 @@ where
     Ok(())
 }
 
-fn render_attachment_section<State>(
+fn render_attachment_section<E, State>(
     f: &mut Formatter<'_>,
-    report: &Report<impl Error, State>,
+    report: &Report<E, State>,
     options: ReportRenderOptions,
 ) -> fmt::Result
 where
+    E: Error,
     State: SeverityState,
 {
     if !options.show_attachments_section {
@@ -396,7 +403,7 @@ where
     }
 
     let mut wrote_header = false;
-    report.visit_attachments(|item| {
+    Report::<E, State>::visit_attachments(report, |item| {
         match item {
             crate::report::AttachmentVisit::Note { message } => {
                 if !wrote_header {
@@ -443,12 +450,13 @@ where
     Ok(())
 }
 
-fn render_display_causes<State>(
+fn render_display_causes<E, State>(
     f: &mut Formatter<'_>,
-    report: &Report<impl Error, State>,
+    report: &Report<E, State>,
     options: ReportRenderOptions,
 ) -> fmt::Result
 where
+    E: Error,
     State: SeverityState,
 {
     if !options.show_cause_chains_section {
@@ -461,7 +469,7 @@ where
     };
     let mut count = 0usize;
     let mut wrote_header = false;
-    let traversal = report.visit_causes_ext(traversal_options, |cause| {
+    let traversal = Report::<E, State>::visit_causes_ext(report, traversal_options, |cause| {
         if !wrote_header {
             wrote_header = true;
             writeln!(f, "Display Causes:")?;

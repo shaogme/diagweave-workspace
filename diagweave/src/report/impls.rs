@@ -1,8 +1,9 @@
+use super::ReportMetadata;
 use core::error::Error;
 use core::fmt::{self, Debug, Display, Formatter};
 
-use crate::report::Attachment;
-use crate::report::SourceErrorChain;
+use super::Attachment;
+use super::SourceErrorChain;
 
 use super::{Report, SeverityState};
 
@@ -39,9 +40,9 @@ where
         #[cfg(debug_assertions)]
         {
             writeln!(f, "Report:")?;
-            writeln!(f, " - error: {:?}", self.inner())?;
-            writeln!(f, " - metadata: {:?}", self.metadata())?;
-            let diag = self.diagnostics();
+            writeln!(f, " - error: {:?}", Report::<E, State>::inner(self))?;
+            writeln!(f, " - metadata: {:?}", Report::<E, State>::metadata(self))?;
+            let diag: &super::DiagnosticBag = Report::<E, State>::diagnostics(self);
             writeln!(f, " - attachments:")?;
             if diag.attachments().is_empty() {
                 writeln!(f, " - (none)")?;
@@ -51,7 +52,7 @@ where
                 }
             }
             #[cfg(feature = "trace")]
-            writeln!(f, " - trace: {:?}", self.trace())?;
+            writeln!(f, " - trace: {:?}", Report::<E, State>::trace(self))?;
             let display_causes = diag
                 .display_causes()
                 .map(|v| v.items.as_slice())
@@ -69,7 +70,7 @@ where
         #[cfg(not(debug_assertions))]
         {
             f.debug_struct("Report")
-                .field("inner", self.inner())
+                .field("inner", Report::<E, State>::inner(self))
                 .field("bag", &self.data.bag)
                 .finish()
         }
@@ -82,13 +83,13 @@ where
     State: SeverityState,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.inner())?;
-        let metadata = self.metadata();
+        write!(f, "{}", Report::<E, State>::inner(self))?;
+        let metadata = Report::<E, State>::metadata(self);
         let has_metadata = metadata.error_code().is_some()
-            || self.severity().is_some()
+            || Report::<E, State>::severity(self).is_some()
             || metadata.category().is_some()
             || metadata.retryable().is_some();
-        let diag = self.diagnostics();
+        let diag: &super::DiagnosticBag = Report::<E, State>::diagnostics(self);
         let has_diagnostics = diag.stack_trace().is_some()
             || !diag.context().is_empty()
             || !diag.system().is_empty()
@@ -96,7 +97,7 @@ where
             || {
                 #[cfg(feature = "trace")]
                 {
-                    !self.trace().is_empty()
+                    !Report::<E, State>::trace(self).is_empty()
                 }
                 #[cfg(not(feature = "trace"))]
                 {
@@ -108,8 +109,8 @@ where
         }
         write!(f, " [")?;
         let mut idx = 0usize;
-        self.fmt_metadata_fields(f, &mut idx)?;
-        self.fmt_diag_fields(f, &mut idx)?;
+        Report::<E, State>::fmt_metadata_fields(self, f, &mut idx)?;
+        Report::<E, State>::fmt_diag_fields(self, f, &mut idx)?;
         write!(f, "]")
     }
 }
@@ -120,11 +121,11 @@ where
     State: SeverityState,
 {
     fn fmt_metadata_fields(&self, f: &mut Formatter<'_>, idx: &mut usize) -> fmt::Result {
-        let metadata = self.metadata();
+        let metadata: &ReportMetadata<State> = Report::<E, State>::metadata(self);
         if let Some(code) = metadata.error_code() {
             write_field!(f, *idx, "code", code);
         }
-        if let Some(sev) = self.severity() {
+        if let Some(sev) = Report::<E, State>::severity(self) {
             write_field!(f, *idx, "severity", &sev);
         }
         if let Some(cat) = metadata.category() {
@@ -137,11 +138,11 @@ where
     }
 
     fn fmt_diag_fields(&self, f: &mut Formatter<'_>, idx: &mut usize) -> fmt::Result {
-        let diag = self.diagnostics();
+        let diag: &super::DiagnosticBag = Report::<E, State>::diagnostics(self);
 
         #[cfg(feature = "trace")]
         {
-            let trace = self.trace();
+            let trace = Report::<E, State>::trace(self);
             if let Some(context) = trace.context() {
                 if let Some(tid) = &context.trace_id {
                     write_field!(f, *idx, "trace_id", tid.as_ref());
@@ -190,9 +191,9 @@ where
     State: SeverityState + Debug,
 {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.diagnostics()
+        Report::<E, State>::diagnostics(self)
             .origin_src_errors()
             .and_then(SourceErrorChain::first_error)
-            .or_else(|| self.inner().source())
+            .or_else(|| Report::<E, State>::inner(self).source())
     }
 }

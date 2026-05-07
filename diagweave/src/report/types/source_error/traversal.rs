@@ -296,8 +296,12 @@ impl ReportSourceTraversalStrategy {
         State: crate::report::SeverityState,
     {
         match self {
-            Self::Origin => report.diagnostics().origin_src_errors(),
-            Self::Diagnostic => report.diagnostics().diag_src_errors(),
+            Self::Origin => {
+                crate::report::Report::<E, State>::diagnostics(report).origin_src_errors()
+            }
+            Self::Diagnostic => {
+                crate::report::Report::<E, State>::diagnostics(report).diag_src_errors()
+            }
         }
     }
 
@@ -315,9 +319,9 @@ where
     E: Error,
     State: crate::report::SeverityState,
 {
-    let source_errors = strategy.source_errors(report);
+    let source_errors: Option<&SourceErrorChain> = strategy.source_errors::<E, State>(report);
     let inner_source = if strategy.is_origin() {
-        report.inner().source()
+        crate::report::Report::<E, State>::inner(report).source()
     } else {
         None
     };
@@ -340,7 +344,11 @@ impl<'a> ReportSourceErrorIter<'a> {
         State: crate::report::SeverityState,
     {
         Self {
-            walk: traversal_from_report(report, options, ReportSourceTraversalStrategy::Origin),
+            walk: traversal_from_report::<E, State>(
+                report,
+                options,
+                ReportSourceTraversalStrategy::Origin,
+            ),
         }
     }
 
@@ -353,7 +361,11 @@ impl<'a> ReportSourceErrorIter<'a> {
         State: crate::report::SeverityState,
     {
         Self {
-            walk: traversal_from_report(report, options, ReportSourceTraversalStrategy::Diagnostic),
+            walk: traversal_from_report::<E, State>(
+                report,
+                options,
+                ReportSourceTraversalStrategy::Diagnostic,
+            ),
         }
     }
 

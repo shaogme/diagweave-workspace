@@ -52,8 +52,11 @@ pub trait Diagnostic {
     where
         Self: Sized,
     {
-        self.to_report()
-            .and_then_report(|report| report.attach_note(message))
+        self.to_report().and_then_report(
+            |report: Report<Self::Error, MissingSeverity>| -> Report<Self::Error, MissingSeverity> {
+                Report::<Self::Error, MissingSeverity>::attach_note(report, message)
+            },
+        )
     }
 }
 
@@ -150,26 +153,26 @@ where
     }
 
     fn report_attachments(&self) -> Option<&[Attachment]> {
-        self.report_ref().map(Report::attachments)
+        self.report_ref().map(Report::<E, State>::attachments)
     }
 
     fn report_metadata(&self) -> Option<&ReportMetadata<State>> {
-        self.report_ref().map(Report::metadata)
+        self.report_ref().map(Report::<E, State>::metadata)
     }
 
     fn report_error_code(&self) -> Option<&ErrorCode> {
-        self.report_ref().and_then(Report::error_code)
+        self.report_ref().and_then(Report::<E, State>::error_code)
     }
 
     fn report_severity(&self) -> Option<Severity> {
-        self.report_ref().and_then(Report::severity)
+        self.report_ref().and_then(Report::<E, State>::severity)
     }
 
     fn report_category(&self) -> Option<&str> {
-        self.report_ref().and_then(Report::category)
+        self.report_ref().and_then(Report::<E, State>::category)
     }
 
     fn report_retryable(&self) -> Option<bool> {
-        self.report_ref().and_then(Report::retryable)
+        self.report_ref().and_then(Report::<E, State>::retryable)
     }
 }

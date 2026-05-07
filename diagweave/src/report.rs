@@ -53,33 +53,33 @@ mod transform;
 #[path = "report/types.rs"]
 mod types;
 
+use alloc::boxed::Box;
 use core::error::Error;
 
 pub use ext::{Diagnostic, InspectReportExt, ResultReportExt};
 pub use types::{
     Attachment, AttachmentValue, CauseCollectOptions, CauseKind, ContextMap, ContextValue,
-    DisplayCauseChain, ErrorCode, ErrorCodeIntError, GlobalErrorMeta, HasSeverity, MissingSeverity,
-    ReportMetadata, ReportOptions, Severity, SeverityParseError, SeverityState, SourceErrorChain,
-    SourceErrorEntry, SourceErrorItem, StackFrame, StackTrace, StackTraceFormat,
+    DiagnosticBag, DisplayCauseChain, ErrorCode, ErrorCodeIntError, GlobalErrorMeta, HasSeverity,
+    MissingSeverity, ReportMetadata, ReportOptions, Severity, SeverityParseError, SeverityState,
+    SourceErrorChain, SourceErrorEntry, SourceErrorItem, StackFrame, StackTrace, StackTraceFormat,
 };
 pub use types::{AttachmentVisit, CauseTraversalState, GlobalContext, ReportSourceErrorIter};
 #[cfg(feature = "json")]
 pub use types::{JsonContext, JsonContextEntry};
 
+#[cfg(feature = "std")]
+pub use global::RegisterGlobalContextError;
+#[cfg(feature = "std")]
+pub use global::register_global_injector;
 #[cfg(feature = "trace")]
 pub use trace::{
     ParentSpanId, ReportTrace, SpanId, TraceContext, TraceEvent, TraceEventAttribute,
     TraceEventLevel, TraceId, TraceState,
 };
-
-#[cfg(feature = "std")]
-pub use global::RegisterGlobalContextError;
-#[cfg(feature = "std")]
-pub use global::register_global_injector;
 #[cfg(feature = "std")]
 pub use types::{GlobalConfig, SetGlobalConfigError, set_global_config};
 
-use types::{DiagnosticBag, append_source_chain, limit_depth_source_chain};
+pub(crate) use types::{append_source_chain, limit_depth_source_chain};
 
 /// A high-level diagnostic report that wraps an error with rich metadata and context.
 ///
@@ -134,12 +134,12 @@ where
     State: SeverityState,
 {
     /// Returns a reference to the diagnostics bag.
-    fn diagnostics(&self) -> &DiagnosticBag {
+    pub(crate) fn diagnostics(&self) -> &DiagnosticBag {
         &self.data.bag
     }
 
     /// Returns a mutable reference to the diagnostics bag.
-    fn diagnostics_mut(&mut self) -> &mut DiagnosticBag {
+    pub(crate) fn diagnostics_mut(&mut self) -> &mut DiagnosticBag {
         &mut self.data.bag
     }
 
@@ -184,7 +184,8 @@ where
         &self,
         options: CauseCollectOptions,
     ) -> Option<SourceErrorChain> {
-        self.source_errors_view(self.diagnostics().origin_src_errors(), true, options)
+        let bag: &DiagnosticBag = Report::<E, State>::diagnostics(self);
+        Report::<E, State>::source_errors_view(self, bag.origin_src_errors(), true, options)
     }
 
     /// Returns the diagnostic source error chain view for rendering.
@@ -192,7 +193,8 @@ where
         &self,
         options: CauseCollectOptions,
     ) -> Option<SourceErrorChain> {
-        self.source_errors_view(self.diagnostics().diag_src_errors(), false, options)
+        let bag: &DiagnosticBag = Report::<E, State>::diagnostics(self);
+        Report::<E, State>::source_errors_view(self, bag.diag_src_errors(), false, options)
     }
 }
 
@@ -228,7 +230,7 @@ impl<E> Report<E, MissingSeverity> {
         Report {
             inner,
             data: Box::new(ReportData {
-                metadata: metadata.set_severity(severity),
+                metadata: ReportMetadata::<MissingSeverity>::set_severity(metadata, severity),
                 options,
                 #[cfg(feature = "trace")]
                 trace,
@@ -271,7 +273,7 @@ impl<E> Report<E, HasSeverity> {
         Report {
             inner,
             data: Box::new(ReportData {
-                metadata: metadata.set_severity(severity),
+                metadata: ReportMetadata::<HasSeverity>::set_severity(metadata, severity),
                 options,
                 #[cfg(feature = "trace")]
                 trace,
