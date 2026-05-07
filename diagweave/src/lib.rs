@@ -69,9 +69,9 @@ pub mod report {
     pub use crate::report_impl::{JsonContext, JsonContextEntry};
     #[cfg(feature = "trace")]
     pub use crate::report_impl::{
-        ParentSpanId, ReportTrace, SpanId, TraceContext, TraceEvent, TraceEventAttribute,
-        TraceEventLevel, TraceId, TraceState,
+        ReportTrace, TraceContext, TraceEvent, TraceEventAttribute, TraceEventLevel,
     };
+    pub use crate::utils::{HexId, ParentSpanId, SpanId, TraceId, TraceState};
 }
 
 #[cfg(feature = "trace")]

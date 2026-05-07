@@ -11,8 +11,9 @@ use ref_str::RefStr;
 use crate::render_impl::DiagnosticIr;
 use crate::report::{
     Attachment, AttachmentValue, CauseTraversalState, ContextValue, ErrorCode, HasSeverity,
-    SourceErrorChain, SpanId, StackTrace, TraceId,
+    SourceErrorChain, StackTrace,
 };
+use crate::utils::{ParentSpanId, SpanId, TraceId, TraceState};
 
 #[cfg(feature = "opentelemetry")]
 #[path = "otel/opentelemetry.rs"]
@@ -197,9 +198,9 @@ pub struct OtelEvent<'a> {
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 pub struct OtelTraceContext {
     #[cfg_attr(feature = "json", serde(skip_serializing_if = "Option::is_none"))]
-    pub parent_span_id: Option<crate::report::ParentSpanId>,
+    pub parent_span_id: Option<ParentSpanId>,
     #[cfg_attr(feature = "json", serde(skip_serializing_if = "Option::is_none"))]
-    pub trace_state: Option<crate::report::TraceState>,
+    pub trace_state: Option<TraceState>,
 }
 
 /// OTLP-friendly OpenTelemetry value representation.

@@ -18,12 +18,12 @@ use crate::report::{HasSeverity, Report, SeverityState};
 
 #[cfg(feature = "trace")]
 pub(crate) use ir::build_ctx_and_attachments;
-#[cfg(any(feature = "trace", feature = "otel"))]
+#[cfg(feature = "trace")]
 pub(crate) use ir::build_error_value;
 #[cfg(feature = "trace")]
 pub(crate) use ir::build_trace_value;
 pub use ir::{DiagnosticIr, DiagnosticIrError, DiagnosticIrMessage, DiagnosticIrMetadata};
-#[cfg(any(feature = "trace", feature = "otel"))]
+#[cfg(feature = "trace")]
 pub(crate) use ir::{
     build_diag_src_errs_val, build_display_causes, build_origin_src_errs_val,
     build_stack_trace_value,

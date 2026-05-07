@@ -7,15 +7,15 @@ use core::any;
 use core::error::Error;
 use core::fmt::{self, Display, Formatter};
 use ref_str::RefStr;
-#[cfg(any(feature = "trace", feature = "otel", feature = "json"))]
+#[cfg(any(feature = "trace", feature = "json"))]
 use ref_str::StaticRefStr;
 
 #[cfg(feature = "json")]
 use crate::render_impl::REPORT_JSON_SCHEMA_VERSION;
-#[cfg(any(feature = "trace", feature = "otel"))]
+#[cfg(feature = "trace")]
 use crate::report::AttachmentValue;
 use crate::report::SourceErrorChain;
-#[cfg(any(feature = "trace", feature = "otel"))]
+#[cfg(feature = "trace")]
 use crate::report::StackFrame;
 use crate::report::{
     Attachment, CauseTraversalState, ContextMap, ErrorCode, HasSeverity, MissingSeverity, Report,
@@ -23,7 +23,7 @@ use crate::report::{
 };
 #[cfg(feature = "trace")]
 use crate::report::{ReportTrace, TraceContext, TraceEvent};
-#[cfg(any(feature = "trace", feature = "otel"))]
+#[cfg(feature = "trace")]
 use crate::utils::FastMap;
 /// A structured diagnostic error node shared by renderers and adapters.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -325,7 +325,7 @@ pub(crate) fn build_ctx_and_attachments(
     )
 }
 
-#[cfg(any(feature = "trace", feature = "otel"))]
+#[cfg(feature = "trace")]
 pub(crate) fn build_error_value(error: &DiagnosticIrError<'_>) -> AttachmentValue {
     let mut map = FastMap::new();
     map.insert(
@@ -434,7 +434,7 @@ fn build_trace_event_value(event: &TraceEvent) -> AttachmentValue {
     AttachmentValue::Object(map)
 }
 
-#[cfg(any(feature = "trace", feature = "otel"))]
+#[cfg(feature = "trace")]
 pub(crate) fn build_stack_trace_value(stack_trace: &StackTrace) -> AttachmentValue {
     let mut map = FastMap::new();
     let format = match stack_trace.format {
@@ -458,7 +458,7 @@ pub(crate) fn build_stack_trace_value(stack_trace: &StackTrace) -> AttachmentVal
     AttachmentValue::Object(map)
 }
 
-#[cfg(any(feature = "trace", feature = "otel"))]
+#[cfg(feature = "trace")]
 fn build_stack_frame_value(frame: &StackFrame) -> AttachmentValue {
     let mut map = FastMap::new();
     if let Some(value) = frame.symbol.as_ref() {
@@ -479,7 +479,7 @@ fn build_stack_frame_value(frame: &StackFrame) -> AttachmentValue {
     AttachmentValue::Object(map)
 }
 
-#[cfg(any(feature = "trace", feature = "otel"))]
+#[cfg(feature = "trace")]
 pub(crate) fn build_display_causes(
     display_causes: &[Arc<dyn Display + Send + Sync + 'static>],
     state: CauseTraversalState,
@@ -502,17 +502,17 @@ pub(crate) fn build_display_causes(
     AttachmentValue::Object(map)
 }
 
-#[cfg(any(feature = "trace", feature = "otel"))]
+#[cfg(feature = "trace")]
 pub(crate) fn build_origin_src_errs_val(source_errors: &SourceErrorChain) -> AttachmentValue {
     build_source_errors_value(source_errors, true)
 }
 
-#[cfg(any(feature = "trace", feature = "otel"))]
+#[cfg(feature = "trace")]
 pub(crate) fn build_diag_src_errs_val(source_errors: &SourceErrorChain) -> AttachmentValue {
     build_source_errors_value(source_errors, false)
 }
 
-#[cfg(any(feature = "trace", feature = "otel"))]
+#[cfg(feature = "trace")]
 fn build_source_errors_value(
     source_errors: &SourceErrorChain,
     hide_report_wrapper_types: bool,
@@ -557,7 +557,7 @@ fn build_source_errors_value(
     AttachmentValue::Object(map)
 }
 
-#[cfg(any(feature = "trace", feature = "otel"))]
+#[cfg(feature = "trace")]
 fn build_source_err_node(
     message: &str,
     type_name: Option<StaticRefStr>,

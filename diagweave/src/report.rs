@@ -72,10 +72,7 @@ pub use global::RegisterGlobalContextError;
 #[cfg(feature = "std")]
 pub use global::register_global_injector;
 #[cfg(feature = "trace")]
-pub use trace::{
-    ParentSpanId, ReportTrace, SpanId, TraceContext, TraceEvent, TraceEventAttribute,
-    TraceEventLevel, TraceId, TraceState,
-};
+pub use trace::{ReportTrace, TraceContext, TraceEvent, TraceEventAttribute, TraceEventLevel};
 #[cfg(feature = "std")]
 pub use types::{GlobalConfig, SetGlobalConfigError, set_global_config};
 
