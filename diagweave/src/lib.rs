@@ -94,9 +94,9 @@ pub mod prelude {
     };
     #[cfg(feature = "std")]
     pub use crate::report::{GlobalContext, register_global_injector};
+    #[cfg(any(feature = "trace", feature = "otel"))]
+    pub use crate::report::{ParentSpanId, SpanId, TraceId, TraceState};
     #[cfg(feature = "trace")]
-    pub use crate::report::{
-        ParentSpanId, SpanId, TraceEvent, TraceEventAttribute, TraceEventLevel, TraceId, TraceState,
-    };
+    pub use crate::report::{TraceEvent, TraceEventAttribute, TraceEventLevel};
     pub use crate::{Error, RefStr, StaticRefStr, set, union};
 }
