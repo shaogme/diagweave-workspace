@@ -467,13 +467,17 @@ let report = report.capture_stack_trace();
 #### 2. `ResultReportExt` (作用于 `Result<T, Report<E>>`)
 不再重复每个 `Report` 方法，而是提供单一组合子：
 - `and_then_report(|r| r.with_ctx(...).with_severity(...))` — 仅在错误路径上应用任意 `Report` 方法链
+- `map_report_err(|e| Outer::from(e))` — 转换内部错误类型，并保留所有诊断信息
+- `into_report_inner()` — 丢弃诊断信息，返回 `Result<T, E>`
 
 闭包接收 owned `Report` 并返回 owned `Report`。在 `Ok` 路径上闭包永远不会被调用，提供天然的延迟语义。
 
 #### 3. `InspectReportExt` (作用于 `Result<T, Report<E>>`)
 用于在错误路径做只读查询，避免手动 `match Err(report)`：
-- `report_ref()`、`report_metadata()`、`report_attachments()`
+- `report_ref()`、`report_inner()`、`report_metadata()`、`report_attachments()`
 - `report_error_code()`、`report_severity()`、`report_category()`、`report_retryable()`
+- `report_context()`、`report_system()`、`report_stack_trace()`、`report_options()`、`report_display_causes()`
+- `report_iter_origin_sources()`、`report_iter_diag_sources()`
 
 
 ### 用法示例
@@ -487,14 +491,21 @@ fn process() -> Result<(), Report<io::Error, HasSeverity>> {
     let timestamp_key = "timestamp";
     fs::read_to_string("config.toml")
         .to_report()
-        .and_then_report(|r| {
-            r.with_ctx(file_key, "config.toml")
-                .with_severity(Severity::Warn)
-                .with_ctx(timestamp_key, ContextValue::String(format!("{:?}", SystemTime::now()).into()))
-                .attach_printable("failed to load system config")
-        })?;
+        .with_ctx(file_key, "config.toml")
+        .with_severity(Severity::Warn)
+        .with_ctx(timestamp_key, ContextValue::String(format!("{:?}", SystemTime::now()).into()))
+        .attach_printable("failed to load system config")
+        .set_severity(Severity::Error)?;
         
     Ok(())
+}
+
+// 示例：在保留诊断信息的同时转换错误类型
+fn boundary_op() -> Result<String, Report<io::Error>> {
+    fs::read_to_string("config.toml")
+        .to_report()
+        .map_report_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        .and_then_report(|r| r.attach_note("在边界处捕获"))
 }
 ```
 

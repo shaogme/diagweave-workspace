@@ -35,6 +35,9 @@
 //! structure. This keeps the primary `Report` struct small (only two pointers)
 //! and improves performance when reports are moved or passed around.
 
+#[macro_use]
+#[path = "report/macros.rs"]
+mod macros;
 #[path = "report/accessors.rs"]
 mod accessors;
 #[path = "report/builder.rs"]
@@ -195,7 +198,10 @@ where
     }
 }
 
-impl<E> Report<E, MissingSeverity> {
+impl<E, State> Report<E, State>
+where
+    State: SeverityState,
+{
     /// Sets the severity for the report, transitioning to `HasSeverity` typestate.
     ///
     /// This method consumes the report and returns a new one with the severity
@@ -227,7 +233,7 @@ impl<E> Report<E, MissingSeverity> {
         Report {
             inner,
             data: Box::new(ReportData {
-                metadata: ReportMetadata::<MissingSeverity>::set_severity(metadata, severity),
+                metadata: metadata.into_has_severity(severity),
                 options,
                 #[cfg(feature = "trace")]
                 trace,
@@ -235,47 +241,30 @@ impl<E> Report<E, MissingSeverity> {
             }),
         }
     }
-}
 
-impl<E> Report<E, HasSeverity> {
-    /// Sets the severity to a new value.
-    ///
-    /// This method is provided for API consistency, allowing `set_severity`
-    /// to be called on both `MissingSeverity` and `HasSeverity` typestates.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use diagweave::prelude::{Report, Severity};
-    /// use diagweave::Error;
-    ///
-    /// #[derive(Debug, Error)]
-    /// #[display("my error")]
-    /// struct MyError;
-    ///
-    /// let report = Report::new(MyError)
-    ///     .set_severity(Severity::Warn);
-    /// let report = report.set_severity(Severity::Error); // Replace severity
-    /// assert_eq!(report.severity(), Some(Severity::Error));
-    /// ```
-    pub fn set_severity(self, severity: Severity) -> Report<E, HasSeverity> {
-        let Self { inner, data } = self;
-        let ReportData {
-            metadata,
-            options,
-            #[cfg(feature = "trace")]
-            trace,
-            bag,
-        } = *data;
-        Report {
-            inner,
-            data: Box::new(ReportData {
-                metadata: ReportMetadata::<HasSeverity>::set_severity(metadata, severity),
+    /// Sets the severity only if not already set, transitioning to `HasSeverity` typestate.
+    pub fn with_severity(self, severity: Severity) -> Report<E, HasSeverity> {
+        if let Some(existing) = self.severity() {
+            let Self { inner, data } = self;
+            let ReportData {
+                metadata,
                 options,
                 #[cfg(feature = "trace")]
                 trace,
                 bag,
-            }),
+            } = *data;
+            Report {
+                inner,
+                data: Box::new(ReportData {
+                    metadata: metadata.into_has_severity(existing),
+                    options,
+                    #[cfg(feature = "trace")]
+                    trace,
+                    bag,
+                }),
+            }
+        } else {
+            self.set_severity(severity)
         }
     }
 }

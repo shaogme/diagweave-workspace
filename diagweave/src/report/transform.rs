@@ -136,36 +136,6 @@ where
     }
 }
 
-impl<E> Report<E, super::HasSeverity> {
-    /// Sets the severity only if not already set.
-    ///
-    /// This allows conditional chaining without type-state changes when severity
-    /// is already set. Use `set_severity()` to force a new severity value.
-    ///
-    /// Since this implementation is for `Report<E, HasSeverity>`, the severity
-    /// is already present, so this method simply returns `self` unchanged.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use diagweave::prelude::{Report, Severity};
-    /// use diagweave::Error;
-    ///
-    /// #[derive(Debug, Error)]
-    /// #[display("my error")]
-    /// struct MyError;
-    ///
-    /// let report = Report::new(MyError)
-    ///     .set_severity(Severity::Error);
-    ///
-    /// // This is a no-op since severity is already set
-    /// let report = report.with_severity(Severity::Warn);
-    /// assert_eq!(report.severity(), Some(Severity::Error));
-    /// ```
-    pub fn with_severity(self, _severity: super::Severity) -> Self {
-        self
-    }
-}
 
 #[cfg(test)]
 mod tests {

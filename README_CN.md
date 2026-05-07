@@ -280,6 +280,8 @@ pub enum MyError {
 常用链式增强（`Result<T, Report<E>>`）：
 
 - `and_then_report(|r| r.with_ctx(key, value).with_severity(...))` — 在错误路径上应用任意 `Report` 方法链
+- `map_report_err(|e| Outer::from(e))` — 转换内部错误类型，并保留所有诊断信息
+- `into_report_inner()` — 丢弃诊断信息，返回 `Result<T, E>`
 
 `category`、`trace_state` 和 trace 事件名等高频字符串在捕获后会以 `StaticRefStr` 共享存储。
 附件 key、payload 名称、payload media type、全局上下文 key 等持久化字符串也统一使用 `StaticRefStr`。
@@ -308,8 +310,10 @@ Note 附件读取：
 
 `Result<T, Report<E>>` 的只读扩展（`InspectReportExt`）：
 
-- `report_ref()`、`report_metadata()`、`report_attachments()`
+- `report_ref()`、`report_inner()`、`report_metadata()`、`report_attachments()`
 - `report_error_code()`、`report_severity()`、`report_category()`、`report_retryable()`
+- `report_context()`、`report_system()`、`report_stack_trace()`、`report_options()`、`report_display_causes()`
+- `report_iter_origin_sources()`、`report_iter_diag_sources()`
 
 `ErrorCode` 设计：
 

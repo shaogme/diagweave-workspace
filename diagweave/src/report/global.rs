@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 use super::trace::ReportTrace;
 #[cfg(feature = "std")]
 use super::types::GlobalContext;
-use super::{MissingSeverity, Report, ReportMetadata, ReportOptions, SeverityState};
+use super::{Report, ReportMetadata, ReportOptions, SeverityState};
 use alloc::boxed::Box;
 
 /// Context injector type alias for global context providers.
@@ -270,49 +270,4 @@ impl<E> Report<E, crate::report::MissingSeverity> {
         return report;
     }
 
-    /// Sets the severity for the report when severity is not already set.
-    ///
-    /// This implementation is for `Report<E, MissingSeverity>`, which means
-    /// the severity has not been set yet. This method sets the severity and
-    /// transitions the typestate from `MissingSeverity` to `HasSeverity`.
-    ///
-    /// For `Report<E, HasSeverity>` (severity already set), this method is
-    /// a no-op and simply returns `self` unchanged. Use `set_severity()` to
-    /// force a new severity value regardless of current state.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use diagweave::prelude::{Report, Severity};
-    /// use diagweave::Error;
-    ///
-    /// #[derive(Debug, Error)]
-    /// #[display("my error")]
-    /// struct MyError;
-    ///
-    /// // Starting from MissingSeverity, with_severity sets the severity
-    /// let report = Report::new(MyError)
-    ///     .with_severity(Severity::Error);
-    /// assert_eq!(report.severity(), Some(Severity::Error));
-    /// ```
-    pub fn with_severity(self, severity: super::Severity) -> Report<E, super::HasSeverity> {
-        let Self { inner, data } = self;
-        let super::ReportData {
-            metadata,
-            options,
-            #[cfg(feature = "trace")]
-            trace,
-            bag,
-        } = *data;
-        Report {
-            inner,
-            data: Box::new(super::ReportData {
-                metadata: ReportMetadata::<MissingSeverity>::set_severity(metadata, severity),
-                options,
-                #[cfg(feature = "trace")]
-                trace,
-                bag,
-            }),
-        }
-    }
 }

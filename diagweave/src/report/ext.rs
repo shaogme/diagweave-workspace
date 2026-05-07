@@ -1,7 +1,8 @@
 use core::fmt::Display;
 
 use super::{
-    Attachment, ErrorCode, MissingSeverity, Report, ReportMetadata, Severity, SeverityState,
+    Attachment, ContextMap, ErrorCode, MissingSeverity, Report, ReportMetadata, ReportOptions,
+    ReportSourceErrorIter, Severity, SeverityState, StackTrace,
 };
 
 /// A trait for types that can be converted into a diagnostic result.
@@ -83,6 +84,39 @@ impl<T, E> Diagnostic for Result<T, E> {
 ///     })
 ///     .map_err(|db_err| AppError::from(db_err))?;
 /// ```
+macro_rules! define_ext_method {
+    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty),*) -> Self) => {
+        $(#[$attr])*
+        fn $name(self, $($arg: $ty),*) -> Self;
+    };
+    ($(#[$attr:meta])* fn $name:ident <$($gen:ident),*> ($($arg:ident : $ty:ty $(,)? )* ) -> Self where $($bound:tt)*) => {
+        $(#[$attr])*
+        fn $name <$($gen),*> (self, $($arg: $ty),*) -> Self where $($bound)*;
+    };
+    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty $(,)? )* ) -> $ret:ty [STATE_CHANGE]) => {
+        $(#[$attr])*
+        fn $name(self, $($arg: $ty),*) -> $ret;
+    };
+}
+
+macro_rules! impl_ext_method {
+    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty),*) -> Self) => {
+        fn $name(self, $($arg: $ty),*) -> Self {
+            self.map_err(|r| r.$name($($arg),*))
+        }
+    };
+    ($(#[$attr:meta])* fn $name:ident <$($gen:ident),*> ($($arg:ident : $ty:ty $(,)? )* ) -> Self where $($bound:tt)*) => {
+        fn $name <$($gen),*> (self, $($arg: $ty),*) -> Self where $($bound)* {
+            self.map_err(|r| r.$name($($arg),*))
+        }
+    };
+    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty $(,)? )* ) -> $ret:ty [STATE_CHANGE]) => {
+        fn $name(self, $($arg: $ty),*) -> $ret {
+            self.map_err(|r| r.$name($($arg),*))
+        }
+    };
+}
+
 pub trait ResultReportExt<T, E, State = MissingSeverity>
 where
     State: SeverityState,
@@ -90,6 +124,7 @@ where
     /// Applies a transformation to the inner `Report` only on the error path.
     ///
     /// The closure receives an owned `Report` and must return an owned `Report`
+    /// of any error and state type. If the result is `Ok`, the
     /// closure is never invoked.
     fn and_then_report<NewE, NewState>(
         self,
@@ -97,6 +132,21 @@ where
     ) -> Result<T, Report<NewE, NewState>>
     where
         NewState: SeverityState;
+
+    /// Maps the inner error type of the report while preserving all diagnostic data.
+    ///
+    /// This is a convenience wrapper around [`Report::map_err`] that operates
+    /// on the error path of a `Result`.
+    fn map_report_err<NewE>(self, f: impl FnOnce(E) -> NewE) -> Result<T, Report<NewE, State>>
+    where
+        E: core::error::Error + Send + Sync + 'static,
+        NewE: core::error::Error + Send + Sync + 'static;
+
+    /// Consumes the result and returns the inner error if it's an error,
+    /// discarding all diagnostic information.
+    fn into_report_inner(self) -> Result<T, E>;
+
+    for_each_report_builder_method!(define_ext_method);
 }
 
 impl<T, E, State> ResultReportExt<T, E, State> for Result<T, Report<E, State>>
@@ -112,6 +162,20 @@ where
     {
         self.map_err(f)
     }
+
+    fn map_report_err<NewE>(self, f: impl FnOnce(E) -> NewE) -> Result<T, Report<NewE, State>>
+    where
+        E: core::error::Error + Send + Sync + 'static,
+        NewE: core::error::Error + Send + Sync + 'static,
+    {
+        self.map_err(|r| r.map_err(f))
+    }
+
+    fn into_report_inner(self) -> Result<T, E> {
+        self.map_err(|r| r.into_inner())
+    }
+
+    for_each_report_builder_method!(impl_ext_method);
 }
 
 /// Read-only inspection trait for `Result<T, Report<E, State>>`.
@@ -125,8 +189,17 @@ where
     /// Returns a reference to the inner `Report` on the error path, or `None`.
     fn report_ref(&self) -> Option<&Report<E, State>>;
 
+    /// Returns a reference to the inner error on the error path, or `None`.
+    fn report_inner(&self) -> Option<&E>;
+
     /// Returns the report's attachments on the error path, or `None`.
     fn report_attachments(&self) -> Option<&[Attachment]>;
+
+    /// Returns the report's context on the error path, or `None`.
+    fn report_context(&self) -> Option<&ContextMap>;
+
+    /// Returns the report's system context on the error path, or `None`.
+    fn report_system(&self) -> Option<&ContextMap>;
 
     /// Returns the report's metadata on the error path, or `None`.
     fn report_metadata(&self) -> Option<&ReportMetadata<State>>;
@@ -142,6 +215,27 @@ where
 
     /// Returns whether the report is retryable on the error path, or `None`.
     fn report_retryable(&self) -> Option<bool>;
+
+    /// Returns the report's stack trace on the error path, or `None`.
+    fn report_stack_trace(&self) -> Option<&StackTrace>;
+
+    /// Returns the report's options on the error path, or `None`.
+    fn report_options(&self) -> Option<&ReportOptions>;
+
+    /// Returns the report's display causes on the error path, or `None`.
+    fn report_display_causes(
+        &self,
+    ) -> Option<&[alloc::sync::Arc<dyn core::fmt::Display + Send + Sync>]>;
+
+    /// Returns an iterator over the report's origin source errors on the error path, or `None`.
+    fn report_iter_origin_sources(&self) -> Option<ReportSourceErrorIter<'_>>
+    where
+        E: core::error::Error;
+
+    /// Returns an iterator over the report's diagnostic source errors on the error path, or `None`.
+    fn report_iter_diag_sources(&self) -> Option<ReportSourceErrorIter<'_>>
+    where
+        E: core::error::Error;
 }
 
 impl<T, E, State> InspectReportExt<T, E, State> for Result<T, Report<E, State>>
@@ -152,8 +246,20 @@ where
         self.as_ref().err()
     }
 
+    fn report_inner(&self) -> Option<&E> {
+        self.report_ref().map(Report::<E, State>::inner)
+    }
+
     fn report_attachments(&self) -> Option<&[Attachment]> {
         self.report_ref().map(Report::<E, State>::attachments)
+    }
+
+    fn report_context(&self) -> Option<&ContextMap> {
+        self.report_ref().map(Report::<E, State>::context)
+    }
+
+    fn report_system(&self) -> Option<&ContextMap> {
+        self.report_ref().map(Report::<E, State>::system)
     }
 
     fn report_metadata(&self) -> Option<&ReportMetadata<State>> {
@@ -174,5 +280,34 @@ where
 
     fn report_retryable(&self) -> Option<bool> {
         self.report_ref().and_then(Report::<E, State>::retryable)
+    }
+
+    fn report_stack_trace(&self) -> Option<&StackTrace> {
+        self.report_ref().and_then(Report::<E, State>::stack_trace)
+    }
+
+    fn report_options(&self) -> Option<&ReportOptions> {
+        self.report_ref().map(Report::<E, State>::options)
+    }
+
+    fn report_display_causes(
+        &self,
+    ) -> Option<&[alloc::sync::Arc<dyn core::fmt::Display + Send + Sync>]> {
+        self.report_ref().map(Report::<E, State>::display_causes)
+    }
+
+    fn report_iter_origin_sources(&self) -> Option<ReportSourceErrorIter<'_>>
+    where
+        E: core::error::Error,
+    {
+        self.report_ref()
+            .map(Report::<E, State>::iter_origin_sources)
+    }
+
+    fn report_iter_diag_sources(&self) -> Option<ReportSourceErrorIter<'_>>
+    where
+        E: core::error::Error,
+    {
+        self.report_ref().map(Report::<E, State>::iter_diag_sources)
     }
 }

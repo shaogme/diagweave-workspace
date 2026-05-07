@@ -279,7 +279,9 @@ From `Result<T, E>`:
 
 Common enrichers on `Result<T, Report<E>>`:
 
-- `and_then_report(|r| r.with_ctx(key, value).with_severity(...))` — apply any chain of `Report` methods on the error path
+- `and_then_report(|r| r.with_ctx(key, value).with_severity(...))` — apply any chain of `Report` builder methods on the error path
+- `map_report_err(|e| Outer::from(e))` — transform the inner error type while preserving all diagnostics
+- `into_report_inner()` — discard diagnostics and return `Result<T, E>`
 
 Hot-path string fields like `category`, `trace_state`, and trace event names are stored with `StaticRefStr` after capture.
 Attachment keys, payload names, payload media types, global context keys, and other stored string metadata also use `StaticRefStr`.
@@ -308,8 +310,10 @@ Attachment note access:
 
 Read APIs on `Result<T, Report<E>>` via `InspectReportExt`:
 
-- `report_ref()`, `report_metadata()`, `report_attachments()`
+- `report_ref()`, `report_inner()`, `report_metadata()`, `report_attachments()`
 - `report_error_code()`, `report_severity()`, `report_category()`, `report_retryable()`
+- `report_context()`, `report_system()`, `report_stack_trace()`, `report_options()`, `report_display_causes()`
+- `report_iter_origin_sources()`, `report_iter_diag_sources()`
 
 `ErrorCode` design:
 
