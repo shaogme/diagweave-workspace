@@ -1,8 +1,9 @@
-error[E0204]: the trait `std::marker::Copy` cannot be implemented for this type
- --> tests/ui/derive/set_copy_fail.rs:4:14
+error[E0204]: the trait `Copy` cannot be implemented for this type
+ --> tests/ui/derive/set_copy_fail.rs:5:5
   |
 4 |     #[derive(Copy, Clone)]
-  |              ^^^^
+  |              ---- in this derive macro expansion
 5 |     SetA = {
+  |     ^^^^
 6 |         Variant1(String),
-  |                  ------ this field does not implement `std::marker::Copy`
+  |                  ------ this field does not implement `Copy`

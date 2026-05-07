@@ -37,7 +37,8 @@
   - [Standalone `#[derive(Error)]`](#standalone-deriveerror)
   - [`Report` and chain APIs](#report-and-chain-apis)
   - [Rendering and export](#rendering-and-export)
-  - [Advanced patterns from `diagweave-example`](#advanced-patterns-from-diagweave-example)
+    - [OTEL schema](#otel-schema)
+  - [Advanced patterns from `showcase`](#advanced-patterns-from-showcase)
   - [Comparison with other crates](#comparison-with-other-crates)
   - [Feature flags](#feature-flags)
   - [Workspace layout](#workspace-layout)
@@ -78,8 +79,8 @@ With `default-features = false`, `diagweave` supports `no_std + alloc`.
 
 ## Quick Start
 
-```rust,no_run
-use diagweave::prelude::{set, Diagnostic, Report, ReportResultExt};
+```rust
+use diagweave::prelude::{set, Diagnostic, Report, ResultReportExt};
 
 set! {
     AuthError = {
@@ -97,10 +98,20 @@ fn verify(user_id: u64) -> Result<(), AuthError> {
 
 fn main() {
     let report: Report<AuthError> = verify(7)
-        .diag_context("request_id", "req-001")
-        .with_context("retry", 0)
-        .with_note("auth gate rejected")
+        .to_report()
+        .and_then_report(|r| {
+            r.with_ctx("request_id", "req-001")
+                .with_ctx("retry", 0)
+                .attach_note("auth gate rejected")
+        })
         .expect_err("demo");
+
+    // Or equivalently using `diag` as a shorthand for the two-step chain
+    let diag_report = verify(7).diag(|r| {
+        r.with_ctx("request_id", "req-001")
+            .with_ctx("retry", 0)
+            .attach_note("auth gate rejected")
+    });
 
     println!("{}", report);          // compact output
     println!("{}", report.pretty()); // structured output
@@ -185,6 +196,11 @@ set! {
 
 `#[display(transparent)]` and `#[from]` on tuple variants are supported and require exactly one field.
 
+Additional notes:
+- enum visibility follows the `set!` declaration (`pub`, `pub(crate)`, or private)
+- top-level attributes on the `set!` enum are preserved
+- auto helpers: `to_report()`, `source()`, and `diag()` on the enum
+
 ## `union!`
 
 ```rust
@@ -230,6 +246,9 @@ Highlights:
 - display delegation for wrapped external errors
 - `as Alias` for variant naming override
 - auto `Error` implementation and auto `Debug` backfill
+- generated constructors and `*_report` helpers (same as `set!`)
+- supports `#[diagweave(constructor_prefix = "...", report_path = "...")]`
+- auto helpers: `to_report()`, `source()`, and `diag()` on the enum
 
 ## Standalone `#[derive(Error)]`
 
@@ -249,56 +268,66 @@ pub enum MyError {
 }
 ```
 
-Supports `#[display(...)]`, `#[display(transparent)]`, `#[from]`, and `#[source]`, plus `diag()` integration.
+Supports `#[display(...)]`, `#[display(transparent)]`, `#[from]`, and `#[source]`, plus `to_report()` integration.
 
 ## `Report` and chain APIs
 
 From `Result<T, E>`:
 
-- `diag()`
-- `diag_context(key, value)`
-- `diag_note(message)`
+- `to_report()`
+- `to_report_note(message)`
 
 Common enrichers on `Result<T, Report<E>>`:
 
-- `with_context`, `with_note`, `with_payload`
-- `with_error_code`, `with_severity`, `with_category`, `with_retryable`
-- `with_display_cause`, `with_display_causes`, `with_source_error`
-- `context_lazy`, `note_lazy`
-- `wrap`, `wrap_with`
+- `and_then_report(|r| r.with_ctx(key, value).with_severity(...))` — apply any chain of `Report` methods on the error path
+
+Hot-path string fields like `category`, `trace_state`, and trace event names are stored with `StaticRefStr` after capture.
+Attachment keys, payload names, payload media types, global context keys, and other stored string metadata also use `StaticRefStr`.
+The matching setters accept `impl Into<StaticRefStr>`, so callers can pass owned shared strings without an extra copy.
+
+`map_err()` is the recommended entry point for error type transformation; whether it accumulates the origin `source` chain is controlled by `ReportOptions` (debug: enabled, release: disabled by default).
 
 Read APIs on `Report<E>`:
 
 - `attachments()`, `metadata()`, `stack_trace()`
+- `context() -> &ContextMap`, `system() -> &ContextMap`
 - `error_code()`, `severity()`, `category()`, `retryable()`
 - `visit_causes(visit)` / `visit_causes_ext(options, visit)`
-- `visit_sources(visit)` / `visit_sources_ext(options, visit)`
-- `iter_sources()` / `iter_sources_ext(options)`
+- `visit_origin_sources(visit)` / `visit_origin_src_ext(options, visit)`
+- `visit_diag_sources(visit)` / `visit_diag_srcs_ext(options, visit)`
+- `iter_origin_sources()` / `iter_origin_src_ext(options)`
+- `iter_diag_sources()` / `iter_diag_srcs_ext(options)`
+- `options()` — read current `ReportOptions`
+- `set_options(options: ReportOptions)` — replace report options
+- `set_accumulate_src_chain(accumulate: bool)` — quick toggle for `map_err()` source chain accumulation
 
 Attachment note access:
 
-- `Attachment::as_note() -> Option<Cow<'_, str>>` (materialized text view)
-- `Attachment::as_note_display() -> Option<&(dyn Display + 'static)>` (zero-allocation display view)
+- `Attachment::as_note() -> Option<String>` (materialized text view)
+- `Attachment::as_note_display() -> Option<&(dyn Display + Send + Sync + 'static)>` (zero-allocation display view)
 
-Read APIs on `Result<T, Report<E>>` via `ReportResultInspectExt`:
+Read APIs on `Result<T, Report<E>>` via `InspectReportExt`:
 
 - `report_ref()`, `report_metadata()`, `report_attachments()`
 - `report_error_code()`, `report_severity()`, `report_category()`, `report_retryable()`
 
 `ErrorCode` design:
 
-- dual representation: `Integer(i64)` or `String(Cow<'static, str>)`
-- write path: `with_error_code(x)` accepts `impl Into<ErrorCode>`
+- dual representation: `Integer(i64)` or `String(StaticRefStr)`
+- write path: `set_error_code(x)` or `with_error_code(x)` accepts `impl Into<ErrorCode>`
+- `set_error_code(x)` replaces existing value; `with_error_code(x)` only sets if not already set
 - integer inputs that fit in `i64` are stored as `Integer`; overflow falls back to decimal `String`
 - read path: `TryFrom<ErrorCode>` / `TryFrom<&ErrorCode>` to integer types (`i8..i128`, `u8..u128`, `isize`, `usize`)
 - string path: `Into<String>` and `to_string()` are both supported
+
+`AttachmentValue::String` also uses `StaticRefStr` internally, so repeated report wrapping can reuse string payloads without copying.
 - integer parse failures return `ErrorCodeIntError::{InvalidIntegerString, OutOfRange}`
 
 Cause semantics:
 
-- `with_display_cause` / `with_display_causes` accept `impl Display` and append display-cause strings (for rendering/IR).
-- `with_source_error` appends explicit error objects into the report diagnostic bag source chain.
-- Error source propagation is maintained by `with_source_error`, `wrap` / `wrap_with`, and `Error::source()`.
+- `with_display_cause` / `with_display_causes` accept `impl Display + Send + Sync + 'static` and append display-cause strings (for rendering/IR).
+- `with_diag_src_err` appends explicit error objects into the **diagnostic** source chain, requiring `impl Error + Send + Sync + 'static`.
+- Origin source propagation is maintained by `map_err()` and `Error::source()`; whether `map_err()` continues to chain the old inner error is controlled by `ReportOptions.accumulate_src_chain`.
 
 Global context injector (`std`):
 
@@ -309,18 +338,22 @@ Global context injector (`std`):
 
     let _ = register_global_injector(|| {
         let mut ctx = GlobalContext::default();
-        ctx.context.push(("request_id".into(), "req-001".into()));
+        ctx.context.insert("request_id", "req-001");
         Some(ctx)
     });
 }
 ```
+
+Trace context uses validated IDs:
+- `TraceId::from_str("32-hex")` / `SpanId::from_str("16-hex")` / `ParentSpanId::from_str("16-hex")`
+- `unsafe { TraceId::new_unchecked(...) }` to skip validation
 
 ## Rendering and export
 
 Built-in renderers:
 
 ```rust
-use diagweave::render::{Compact, Pretty, ReportRenderOptions};
+use diagweave::render::{Compact, Pretty, ReportRenderOptions, StackTraceFilter};
 # use diagweave::prelude::set;
 # use diagweave::report::Report;
 # set! {
@@ -331,28 +364,53 @@ use diagweave::render::{Compact, Pretty, ReportRenderOptions};
 # }
 # let report = Report::new(AuthError::invalid_token());
 
-let _ = report.render(Compact).to_string();
+let _ = report.render(Compact::summary()).to_string();
 let _ = report.render(Pretty::new(ReportRenderOptions::default())).to_string();
 ```
+
+Rendering presets:
+
+```rust
+use diagweave::render::ReportRenderOptions;
+
+let dev = ReportRenderOptions::developer();     // full details, unfiltered stack traces
+let prod = ReportRenderOptions::production();   // trace event details, app-only frames
+let minimal = ReportRenderOptions::minimal();   // core info only, focused stack traces
+```
+
+Stack trace filtering (`StackTraceFilter`):
+
+- `All` — show every frame (default)
+- `AppOnly` — filter out `std::` / `core::` / `alloc::` / `backtrace::` frames
+- `AppFocused` — additionally filter out `diagweave::` and diagnostic-internal frames
 
 IR and adapters:
 
 ```rust
 # use diagweave::prelude::set;
 # use diagweave::render::ReportRenderOptions;
-# use diagweave::report::Report;
+# use diagweave::report::{Severity, Report};
 # set! {
 #     AuthError = {
 #         #[display("invalid token")]
 #         InvalidToken,
 #     }
 # }
-# let report = Report::new(AuthError::invalid_token());
+# let report = Report::new(AuthError::invalid_token())
+#     .with_severity(Severity::Error);
 
-let ir = report.to_diagnostic_ir(ReportRenderOptions::default());
+let ir = report.to_diagnostic_ir();
+#[cfg(feature = "trace")]
 let tracing_fields = ir.to_tracing_fields();
-let otel = ir.to_otel_envelope();
+#[cfg(feature = "trace")]
+assert!(!tracing_fields.is_empty());
+#[cfg(feature = "otel")]
+let otel = ir.to_otel_envelope(diagweave::otel::OtelEnvelopeConfig::new());
 ```
+
+`DiagnosticIr` and the tracing/OTEL adapter outputs are borrow-first views: string fields use `RefStr<'a>` where possible and only materialize owned strings when a projected value cannot safely borrow from the source report. OTEL export is intentionally gated to `DiagnosticIr<'_, HasSeverity>`, so reports must set an explicit `severity` before producing an OTEL envelope.
+
+`to_otel_envelope(config)` accepts an [`OtelEnvelopeConfig`](diagweave::otel::OtelEnvelopeConfig) so callers can keep compatibility output or opt into a shared namespace such as `diagweave.otel`. Diagweave-owned keys are namespaced by the config, while OTEL semantic-convention keys like `exception.type` remain unchanged.
 
 `DiagnosticIr` keeps render-stable header/metadata plus aggregate counters:
 
@@ -369,16 +427,16 @@ use diagweave::render::ReportRenderOptions;
 # }
 # impl std::error::Error for DemoError {}
 # let report = Report::new(DemoError)
-#     .attach("request_id", "req-42")
+#     .with_ctx("request_id", "req-42")
 #     .attach_printable("note")
 #     .attach_payload("body", AttachmentValue::from("ok"), Some("text/plain"))
 #     .with_display_cause("retry later")
-#     .with_source_error(std::io::Error::other("upstream"));
+#     .with_diag_src_err(std::io::Error::other("upstream"));
 
-let ir = report.to_diagnostic_ir(ReportRenderOptions::default());
+let ir = report.to_diagnostic_ir();
 
-let context_count = ir.context_count;
-let attachment_count = ir.attachment_count;
+let context_count = ir.context.len();
+let attachment_count = ir.attachments.len();
 println!("context_count={context_count}, attachment_count={attachment_count}");
 ```
 
@@ -408,27 +466,44 @@ JSON output includes `schema_version: "v0.1.0"`.
 - Schema: `diagweave/schemas/report-v0.1.0.schema.json`
 - Doc: [`docs/report-json-schema-v0.1.0.md`](docs/report-json-schema-v0.1.0.md)
 
+### OTEL schema
+
+OpenTelemetry envelope output is documented separately and requires the `otel` feature.
+
+- Schema: `diagweave/schemas/report-otel-v0.1.0.schema.json`
+- Doc: [`docs/report-otel-schema-v0.1.0.md`](docs/report-otel-schema-v0.1.0.md)
+
+The OTEL adapter keeps the report tree structured where possible:
+
+- the main `exception` record carries a structured `body` instead of a plain string
+- `exception.stacktrace` is exported as a `KvList`
+- `diagnostic_bag.origin_source_errors / diagnostic_bag.diagnostic_source_errors` preserve `message`; `type` is emitted only when present
+- empty `trace` / `context` / `attachments` sections are omitted
+
+When you pass a namespace in `OtelEnvelopeConfig`, diagweave-owned keys such as `context`, `system`, `attachment`, and `diagnostic_bag` are emitted under that namespace.
+
 Tracing export:
 
 ```rust
 #[cfg(feature = "tracing")]
 {
 #    use diagweave::prelude::set;
-#    use diagweave::report::Report;
+#    use diagweave::report::{Severity, Report};
 #    set! {
 #        AuthError = {
 #            #[display("invalid token")]
 #            InvalidToken,
 #        }
 #    }
-#    let report = Report::new(AuthError::invalid_token());
-    report.emit_tracing(diagweave::render::ReportRenderOptions::default());
+#    let report = Report::new(AuthError::invalid_token())
+#        .with_severity(Severity::Error);
+    report.emit_tracing();
 }
 ```
 
-## Advanced patterns from `diagweave-example`
+## Advanced patterns from `showcase`
 
-See [`diagweave-example/src/main.rs`](diagweave-example/src/main.rs) for a runnable showcase including:
+See [`examples/showcase/src/main.rs`](examples/showcase/src/main.rs) for a runnable showcase including:
 
 - `set!` composition and `union!` API boundary
 - custom constructor prefixes
@@ -441,7 +516,7 @@ See [`diagweave-example/src/main.rs`](diagweave-example/src/main.rs) for a runna
 Run it with:
 
 ```bash
-cargo run -p diagweave-example
+cargo run -p showcase
 ```
 
 ## Comparison with other crates
@@ -460,14 +535,15 @@ cargo run -p diagweave-example
 
 - `std` (default): std integrations
 - `json`: `Json` renderer (`serde` / `serde_json`)
-- `trace`: trace data model (`ReportTrace`, etc.) and pluggable exporter trait (`TracingExporterTrait`, `emit_tracing_with`)
-- `tracing`: default `tracing` crate integration (`TracingExporter`, `emit_tracing`)
+- `trace`: trace data model (`ReportTrace`, etc.), prepared emission typestate (`PreparedTracingEmission`), and pluggable exporter trait (`TracingExporterTrait`)
+- `otel`: OTLP envelope model (`OtelEnvelope`, `OtelEvent`, `OtelValue`), `OtelEnvelopeConfig`, and `to_otel_envelope(config)` / `to_otel_envelope_default()` on `DiagnosticIr<'_, HasSeverity>`
+- `tracing`: default `tracing` crate integration (`TracingExporter`, `prepare_tracing`, `emit_tracing`)
 
 ## Workspace layout
 
 - `diagweave/`: runtime APIs + macro re-export
 - `diagweave-macros/`: proc-macro implementation
-- `diagweave-example/`: runnable best-practice sample (`publish = false`)
+- `examples/showcase/`: runnable best-practice sample (`publish = false`)
 
 ## Testing
 
@@ -480,7 +556,7 @@ bash scripts/test-feature-matrix.sh
 ```
 
 ```powershell
-powershell -File diagweave/scripts/test-feature-matrix.ps1
+powershell -File scripts/test-feature-matrix.ps1
 ```
 
 ## When to use
@@ -492,5 +568,9 @@ If you only need minimal display derivation or quick app-level propagation, a li
 ## License
 
 Dual-licensed under MIT OR Apache-2.0.
+
+
+
+
 
 

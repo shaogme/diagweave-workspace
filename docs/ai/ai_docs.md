@@ -3,10 +3,10 @@
 ## 1. `set!` Macro
 
 ### Overview
-Used to define a series of structured error enums (Error Sets). It automatically implements composition logic between sets, `From` conversions, snake_case named constructors, and report semantics.
+Used to define a series of structured error enums (Error Sets). It automatically implements composition logic between sets, `From` conversions, snake_case named constructors, report semantics, and enum helpers (`to_report()`/`source()`/`diag()`).
 
 ### Syntax Definition
-```text
+```rust, ignore
 set! {
     [#[diagweave(Meta)]]
     Ident = { [VariantDecls] } [ | OtherSet ]
@@ -52,7 +52,8 @@ set! {
 | :--- | :--- | :--- |
 | `AuthError::user_not_found(id: u64)` | `AuthError` | Snake_case constructor |
 | `AuthError::user_not_found_report(id: u64)` | `Report<AuthError>` | Returns a report object containing the current error |
-| `AuthError::diag(self)` | `Report<AuthError>` | Convers error instance into a report |
+| `AuthError::to_report(self)` | `Report<AuthError>` | Converts error instance into a report |
+| `AuthError::source(&self)` | `Option<&dyn Error>` | Access to the underlying error source |
 | `From<AuthError> for ServiceError` | `ServiceError` | Automatic mapping from subset to superset |
 
 ---
@@ -63,7 +64,7 @@ set! {
 Used at architecture boundaries to combine unrelated error types, other error sets, or inline-defined variants.
 
 ### Syntax Definition
-```text
+```rust, ignore
 union! {
     [Attributes]
     [vis] enum Ident = Item1 | Item2 | ...
@@ -108,6 +109,9 @@ union! {
 - **Auto `Display`**: For external types, generates `match` branches calling `inner.fmt(f)`; for inline variants, generates rendering logic based on `#[display]`.
 - **Auto `Error`**: If `Debug` is not provided, `#[derive(Debug)]` is automatically attached.
 - **From Injection**: Injects `impl From<T> for Union` for every external member type.
+- **Constructors**: Generates snake_case constructors and `*_report` helpers for inline and external variants.
+- **Options**: Supports `#[diagweave(constructor_prefix = "...", report_path = "...")]` on the union enum.
+- **Helpers**: Generates `to_report()`, `source()`, and `diag()` on the union enum.
 
 ---
 
@@ -127,7 +131,7 @@ Provides convenient implementations of `Display` and `std::error::Error` traits 
 Any type deriving `Error` automatically gains the following helper methods:
 | Method Declaration | Return Type | Description |
 | :--- | :--- | :--- |
-| `pub fn diag(self)` | `Report<Self>` | Converts to a basic report object |
+| `pub fn to_report(self)` | `Report<Self>` | Converts to a basic report object |
 | `pub fn source(&self)` | `Option<&dyn Error>` | Convenient access to the underlying error source |
 
 ### Usage Example
@@ -153,17 +157,37 @@ enum FileError {
 ## 4. `Report<E>` Diagnostic Report
 
 ### Overview
-The core diagnostic container, wrapping the original error `E` and holding optional "cold data" (metadata, attachments, display-cause chain, trace info). Uses a lazy allocation strategy, only allocating heap memory when auxiliary information is added.
+The core diagnostic container, wrapping the original error `E` and holding optional "cold data" (metadata, attachments, display-cause chain, trace info) plus per-report `ReportOptions`. Uses a lazy allocation strategy, only allocating heap memory when auxiliary information is added.
+Hot path strings such as `category`, `trace_state`, trace event names, and stack trace raw text are stored with shared `StaticRefStr` handles once captured.
+`map_err()` is now the recommended entry point for error type transformation; whether it continues to accumulate the origin `source` chain is controlled by `ReportOptions`.
 
 ### Declaration and Definition
-```rust
-struct ColdData;
 
-pub struct Report<E> {
-    inner: E,
-    cold: Option<Box<ColdData>>,
+The `Report` struct is a high-level diagnostic container with lazy allocation for auxiliary data. The metadata and diagnostics are encapsulated in a boxed `ReportData` structure to keep the `Report` struct small. All fields are **private** and cannot be directly accessed from outside the module.
+
+```rust, ignore
+pub struct Report<E, State: SeverityState = MissingSeverity> {
+    inner: E, // private - wrapped error value
+    data: Box<ReportData<State>>, // private - boxed auxiliary data
+}
+
+struct ReportData<State: SeverityState> {
+    metadata: ReportMetadata<State>, // private - metadata including severity
+    options: ReportOptions, // private - per-report configuration (lazy allocation internally)
+    #[cfg(feature = "trace")]
+    trace: ReportTrace, // private - trace context and events (lazy allocation internally)
+    bag: DiagnosticBag, // private - lazily allocated diagnostic bag
 }
 ```
+
+**Key Points:**
+- `inner`: The wrapped error value (private)
+- `data`: Boxed container for all auxiliary diagnostic data (private). This keeps the `Report` struct lightweight (only two pointers).
+- `metadata`: (Inside `ReportData`) Contains severity typestate and optional error code/category/retryable (private)
+- `options`: (Inside `ReportData`) Per-report configuration for source chain accumulation and cause collection behavior (private). Uses lazy allocation internally.
+- `trace`: (Inside `ReportData`) Trace context and events (private, only with `trace` feature). Uses lazy allocation via `Option<Box<ReportTraceInner>>` internally
+- `bag`: (Inside `ReportData`) Lazily allocated diagnostic bag for attachments, display causes, source errors, context, and system context (private). Uses `Option<Box<DiagnosticBagInner>>` internally for lazy allocation
+- Access to fields is provided through methods like `inner()`, `severity()`, `options()`, etc.
 
 ### Core Construction and Conversion
 | Method Declaration | Description |
@@ -174,24 +198,132 @@ pub struct Report<E> {
 | `report.attachments()` | Returns a list of all associated attachments (`&[Attachment]`) |
 | `report.metadata()` | Returns a reference to the raw metadata (`&ReportMetadata`) |
 | `report.error_code()` | Reads metadata error code (`Option<&ErrorCode>`) |
-| `report.severity()` | Reads metadata severity (`Option<Severity>`) |
+| `report.severity()` | Reads severity from the typestate (`Option<Severity>`) |
 | `report.category()` | Reads metadata category (`Option<&str>`) |
 | `report.retryable()` | Reads metadata retryability (`Option<bool>`) |
 | `report.stack_trace()` | Gets associated stack trace info (`Option<&StackTrace>`) |
-| `report.trace()` | Gets associated trace information (`Option<&ReportTrace>`) |
+| `report.trace()` | Gets associated trace information (`&ReportTrace`). Always returns a reference; use `trace.is_empty()` to check if trace data is present |
 | `report.visit_causes(visit)` | Streams display causes with default options |
 | `report.visit_causes_ext(options, visit)` | Streams display causes with custom options |
-| `report.visit_sources(visit)` | Streams source errors with default options |
-| `report.visit_sources_ext(options, visit)` | Streams source errors with custom options |
-| `report.iter_sources()` | Iterates source errors with default options |
-| `report.iter_sources_ext(options)` | Iterates source errors with custom options |
-| `report.wrap(outer: Outer)` | Wraps current report into another error and links it into the error source chain |
-| `report.wrap_with(map: FnOnce(E) -> Outer)`| Maps internal error while preserving all diagnostic info |
+| `report.visit_origin_sources(visit)` | Streams origin source errors with default options |
+| `report.visit_origin_src_ext(options, visit)` | Streams origin source errors with custom options |
+| `report.visit_diag_sources(visit)` | Streams diagnostic source errors with default options |
+| `report.visit_diag_srcs_ext(options, visit)` | Streams diagnostic source errors with custom options |
+| `report.iter_origin_sources()` | Iterates origin source errors with default options |
+| `report.iter_origin_src_ext(options)` | Iterates origin source errors with custom options |
+| `report.iter_diag_sources()` | Iterates diagnostic source errors with default options |
+| `report.iter_diag_srcs_ext(options)` | Iterates diagnostic source errors with custom options |
+| `report.options()` | Reads the current `ReportOptions` configuration |
+| `report.set_options(options: ReportOptions)` | Replaces the current report options |
+| `report.set_accumulate_src_chain(accumulate: bool)` | Quick toggle for `map_err()` origin `source` chain accumulation |
+| `report.map_err(map: FnOnce(E) -> Outer)`| Maps internal error type while preserving diagnostics; when source chain accumulation is enabled, the old inner error is attached to the new error's `source` chain |
+
+`ReportMetadata<State>` now contains severity typestate and optional metadata fields. The severity is stored as a direct field (not wrapped in Option or Box), while error_code/category/retryable are stored in an inner `Option<Box<MetadataInner>>` for lazy allocation. Read access goes through methods like `error_code()`, `category()`, `retryable()`, and `severity()`. Composition uses builder methods such as `with_error_code(...)` and `set_severity(...)`.
+
+### `ReportOptions` and `GlobalConfig`
+
+`ReportOptions` controls error source chain accumulation and cause collection behavior for an individual `Report`. It uses lazy allocation internally (`Option<Box<ReportOptionsInner>>`), only allocating heap memory when options are explicitly set. Configuration values are resolved with the following priority:
+
+**Configuration Priority**: ReportOptions > GlobalConfig > Profile defaults
+
+#### Profile-Dependent Defaults
+
+| Option | Debug Build | Release Build |
+|--------|-------------|---------------|
+| `accumulate_src_chain` | `true` | `false` |
+| `detect_cycle` | `true` | `false` |
+| `max_depth` | `16` | `16` |
+
+#### Configuration Options
+
+- `accumulate_src_chain`: When set, `map_err()` preserves and extends the origin `source` chain; when not set, inherits from `GlobalConfig` or profile defaults.
+- `max_depth`: Maximum depth of causes to collect during source error traversal. Higher values provide more complete error context but may impact performance for very deep error chains. When not set, inherits from `GlobalConfig` or defaults to 16.
+- `detect_cycle`: When set, the error chain traversal will track visited errors and mark cycles when detected. When not set, inherits from `GlobalConfig` or profile defaults.
+
+#### Builder Methods
+
+| Method | Description |
+|--------|-------------|
+| `ReportOptions::new()` | Creates options with lazy allocation (no heap allocation until an option is set) |
+| `.with_accumulate_src_chain(bool)` | Sets source chain accumulation (allocates inner storage if needed) |
+| `.with_max_depth(usize)` | Sets cause collection depth limit |
+| `.with_cycle_detection(bool)` | Enables/disables cycle detection |
+
+#### Resolution Methods
+
+| Method | Description |
+|--------|-------------|
+| `.resolve_accumulate_src_chain()` | Resolves the actual accumulation setting (Priority: ReportOptions > GlobalConfig > Profile default) |
+| `.resolve_max_depth()` | Resolves the actual depth limit |
+| `.resolve_detect_cycle()` | Resolves the actual cycle detection setting |
+| `.resolve_*_with_source()` | Resolves value with source tracking (returns `ResolvedValue<T>`) |
+
+#### Accessor Methods
+
+| Method | Description |
+|--------|-------------|
+| `.is_set()` | Returns `true` if any option was explicitly configured |
+| `.accumulate_src_chain()` | Returns `Option<bool>` - the explicitly set value or `None` if inherited |
+| `.max_depth()` | Returns `Option<usize>` - the explicitly set value or `None` if inherited |
+| `.detect_cycle()` | Returns `Option<bool>` - the explicitly set value or `None` if inherited |
+
+#### `GlobalConfig` Global Configuration
+
+`GlobalConfig` provides application-level default configuration. When `ReportOptions` fields are not set, values are inherited from `GlobalConfig`. All fields are private and accessed through methods.
+
+| Method | Description |
+|--------|-------------|
+| `GlobalConfig::new()` | Creates global config with profile-dependent defaults |
+| `.with_accumulate_src_chain(bool)` | Sets default accumulation behavior |
+| `.with_max_depth(usize)` | Sets default depth limit |
+| `.with_cycle_detection(bool)` | Sets default cycle detection |
+| `.accumulate_src_chain()` | Returns the configured accumulation default |
+| `.max_depth()` | Returns the configured depth default |
+| `.detect_cycle()` | Returns the configured cycle detection default |
+| `set_global_config(config)` | Sets global config (can only be called once) |
+
+#### Example Usage
+
+```rust
+# #[cfg(feature = "std")]
+# {
+use diagweave::prelude::*;
+use diagweave::report::{GlobalConfig, ReportOptions, set_global_config};
+
+// Set global defaults (call once at application startup)
+let config = GlobalConfig::new()
+    .with_accumulate_src_chain(true)
+    .with_max_depth(32)
+    .with_cycle_detection(true);
+set_global_config(config).expect("Global config already set");
+
+// Use profile-dependent defaults
+let error = std::io::Error::new(std::io::ErrorKind::Other, "test error");
+let report = Report::new(error);
+
+// Configure for performance-critical paths
+let error2 = std::io::Error::new(std::io::ErrorKind::Other, "test error");
+let report2 = Report::new(error2).set_options(
+    ReportOptions::new()
+        .with_max_depth(8)
+        .with_cycle_detection(false)
+);
+
+// Enable full diagnostics for debugging
+let error3 = std::io::Error::new(std::io::ErrorKind::Other, "test error");
+let report3 = Report::new(error3).set_options(
+    ReportOptions::new()
+        .with_accumulate_src_chain(true)
+        .with_max_depth(32)
+        .with_cycle_detection(true)
+);
+# }
+```
 
 ### `ErrorCode` Design and Conversions
 - Internal model:
   - `ErrorCode::Integer(i64)` for compact numeric codes
-  - `ErrorCode::String(Cow<'static, str>)` for symbolic or oversized numeric codes
+  - `ErrorCode::String(StaticRefStr)` for symbolic or oversized numeric codes
 - Input conversion (`impl Into<ErrorCode>`):
   - Integer inputs (`i8..i128`, `u8..u128`, `isize`, `usize`) attempt `TryInto<i64>`
   - On success: stored as `Integer`
@@ -204,31 +336,75 @@ pub struct Report<E> {
   - `ErrorCodeIntError::InvalidIntegerString`
   - `ErrorCodeIntError::OutOfRange`
 
+`AttachmentValue::String` also uses `StaticRefStr` internally, so repeated report wrapping can reuse string payloads without copying. Stored attachment keys, payload names/media types, global context keys, and trace/category metadata follow the same storage rule.
+
+### Cause Semantics
+
+- `with_display_cause` / `with_display_causes` accept `impl Display + Send + Sync + 'static` and append display-cause strings (for rendering/IR).
+- `with_diag_src_err` appends explicit error objects into the **diagnostic** source chain, requiring `impl Error + Send + Sync + 'static`.
+- The origin source chain is maintained by `map_err()` and `Error::source()`; whether the old inner error continues to be chained onto the new error's `source` is decided by `ReportOptions`.
+
 ### Global Injection
 Used for automatic cross-layer context injection (e.g., RequestID, SessionID).
 - **Register**: `register_global_injector(f: fn() -> Option<GlobalContext>)`
+- **Global Config**: `set_global_config(config: GlobalConfig)` - Sets application-level default options
 - **Timing**: Automatically executed every time a new `Report` instance is created.
 
 | GlobalContext Field | Description |
 | :--- | :--- |
-| `context` | `Vec<(Cow<'static, str>, AttachmentValue)>` globally associated key-value pairs |
-| `trace_id` | `Option<Cow<'static, str>>` Automatically bound Trace ID |
-| `span_id` | `Option<Cow<'static, str>>` Automatically bound Span ID |
+| `context` | `ContextMap` globally injected business context |
+| `system` | `ContextMap` globally injected system context (namespaced keys recommended, e.g., `service.name`, `deployment.environment`) |
+| `error` | `Option<GlobalErrorMeta>` metadata override (`error_code` / `category` / `retryable` / `severity`) |
+| `trace` (`trace` feature) | `Option<TraceContext>` globally injected trace context |
+
+**Note**: `GlobalConfig` and `set_global_config` are a separate global configuration system for setting default `ReportOptions` values; `register_global_injector` is used for injecting context information. The two can be used together.
+
+`TraceId` / `SpanId` / `ParentSpanId` are hex-validated identifiers. Construct them with:
+- `TraceId::from_str("32-hex")` / `SpanId::from_str("16-hex")` / `ParentSpanId::from_str("16-hex")`
+- `unsafe { TraceId::new_unchecked(...) }` to skip validation
 
 ### Chained Configuration Methods
+
+**API Naming Convention**:
+- `set_*` methods always replace existing values
+- `with_*` methods only set values when not already set (conditional/preserving semantics)
+
 | Method | Parameter Type | Description |
 | :--- | :--- | :--- |
-| `with_context` / `attach` | `(Ident, impl Into<AttachmentValue>)` | Add context key-value pairs |
-| `with_note` / `attach_printable` | `impl Display + 'static` | Add remarks or resolution suggestions |
-| `with_payload` / `attach_payload` | `(Ident, Value, Option<impl Into<Cow<'static, str>>>)` | Attach named payload (supports media types) |
-| `with_severity` | `Severity` | Set severity (Debug, Info, Warn, Error, Fatal) |
-| `with_error_code` | `impl Into<ErrorCode>` | Set stable error code (e.g., "E001") |
-| `with_category` | `impl Into<Cow<'static, str>>` | Set error category (for monitoring metrics) |
-| `with_retryable` | `bool` | Mark if the error is suggested to be retried |
-| `with_display_cause` | `impl Display` | Add one display-cause string |
-| `with_display_causes` | `impl IntoIterator<Item = impl Display>` | Add multiple display-cause strings |
-| `with_source_error` | `impl Error + 'static` | Add one explicit error source object |
-| `with_stack_trace` | `StackTrace` | Manually associate existing stack trace info |
+| `with_ctx` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | Add business context key-value pairs |
+| `set_ctx` | `(ContextMap)` | Replace the business context map |
+| `with_system` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | Add a system context key-value pair |
+| `set_system` | `(ContextMap)` | Replace the system context map |
+| `set_options` | `ReportOptions` | Replace the current report options |
+| `set_accumulate_src_chain` | `bool` | Quick toggle for `map_err()` origin `source` chain accumulation |
+| `attach_note` / `attach_printable` | `impl Display + Send + Sync + 'static` | Add remarks or resolution suggestions |
+| `attach_payload` / `attach_payload` | `(impl Into<StaticRefStr>, Value, Option<impl Into<StaticRefStr>>)` | Attach named payload (supports media types) |
+| `set_severity` | `Severity` | Set severity (Debug, Info, Warn, Error, Fatal), replacing existing value |
+| `with_severity` | `Severity` | Set severity only if not already set (preserves underlying diagnostic info) |
+| `set_error_code` | `impl Into<ErrorCode>` | Set stable error code (e.g., "E001"), replacing existing value |
+| `with_error_code` | `impl Into<ErrorCode>` | Set error code only if not already set (preserves underlying diagnostic info) |
+| `set_category` | `impl Into<StaticRefStr>` | Set error category (for monitoring metrics), replacing existing value |
+| `with_category` | `impl Into<StaticRefStr>` | Set category only if not already set (preserves underlying diagnostic info) |
+| `set_retryable` | `bool` | Mark if the error is suggested to be retried, replacing existing value |
+| `with_retryable` | `bool` | Set retryable flag only if not already set (preserves underlying diagnostic info) |
+| `with_display_cause` | `impl Display + Send + Sync + 'static` | Add one display-cause string |
+| `with_display_causes` | `impl IntoIterator<Item = impl Display + Send + Sync + 'static>` | Add multiple display-cause strings |
+| `with_diag_src_err` | `impl Error + Send + Sync + 'static` | Add one explicit error source object |
+| `set_stack_trace` | `StackTrace` | Manually associate existing stack trace info, replacing any existing value |
+| `with_stack_trace` | `StackTrace` | Manually associate existing stack trace info only if not already present |
+| `set_trace` | `ReportTrace` | Set trace information, replacing any existing value |
+| `with_trace` | `ReportTrace` | Set trace information only if not already present |
+| `set_trace_ids` | `(TraceId, SpanId)` | Set trace and span IDs, replacing any existing values |
+| `with_trace_ids` | `(TraceId, SpanId)` | Set trace and span IDs only if not already set |
+| `set_parent_span_id` | `ParentSpanId` | Set parent span ID, replacing any existing value |
+| `with_parent_span_id` | `ParentSpanId` | Set parent span ID only if not already set |
+| `set_trace_sampled` | `bool` | Set whether the trace is sampled, replacing any existing value |
+| `with_trace_sampled` | `bool` | Set whether the trace is sampled only if not already set |
+| `set_trace_state` | `impl Into<StaticRefStr>` | Set trace state for correlation metadata, replacing any existing value |
+| `with_trace_state` | `impl Into<StaticRefStr>` | Set trace state only if not already set |
+| `with_trace_event` | `TraceEvent` | Add a trace event to the report |
+| `push_trace_event` | `impl Into<StaticRefStr>` | Append a trace event with default fields |
+| `push_trace_event_with` | `(impl Into<StaticRefStr>, Option<TraceEventLevel>, Option<u64>, impl IntoIterator<Item = TraceEventAttribute>)` | Append a fully specified trace event |
 | `capture_stack_trace` | None | (std) Capture current stack trace (skip if already exists) |
 | `force_capture_stack` | None | (std) Force re-capture stack trace |
 | `clear_stack_trace` | None | Remove associated stack trace info |
@@ -261,38 +437,42 @@ impl std::error::Error for MyError {}
 
 let report = Report::new(MyError::Timeout)
     .with_severity(Severity::Fatal)
-    .with_context("request_id", "req-123")
-    .with_note("please check the network connection")
+    .with_ctx(
+        "request_id",
+        "req-123",
+    )
+    .attach_note("please check the network connection")
     .with_retryable(true)
-    .with_payload("data", vec![1, 2, 3], Some("application/octet-stream"));
+    .attach_payload("data", vec![1, 2, 3], Some("application/octet-stream"));
 #[cfg(feature = "std")]
 let report = report.capture_stack_trace();
 ```
 
 ---
 
-## 5. `Result` Extension Traits (`Diagnostic` / `ReportResultExt` / `ReportResultInspectExt`)
+## 5. `Result` Extension Traits (`Diagnostic` / `ResultReportExt` / `InspectReportExt`)
 
 ### Overview
 Provides pipelines for seamless diagnostic info injection on error paths by implementing extension traits for `Result<T, E>` and `Result<T, Report<E>>`.
 
 ### Core Traits
 #### 1. `Diagnostic` (on `Result<T, E>`)
-- `diag()`: Lifts `Err(E)` to `Err(Report<E>)`.
-- `diag_context(k, v)`: Lifts and injects context.
-- `diag_note(msg)`: Lifts and injects note.
+- `to_report()`: Lifts `Err(E)` to `Err(Report<E>)`.
+- `to_report_note(msg)`: Lifts and injects note.
+- `diag(...)`: Short-hand for chaining a transformation on the error path. Generic signature:
+  `diag<E2, State2>(self, f: impl FnOnce(Report<E>) -> Report<E2, State2>) -> Result<T, Report<E2, State2>>`.
+  The closure receives a `Report<E>` and returns a `Report<E2, State2>`. When only adding metadata,
+  no explicit type annotations are needed; when transforming the error type (e.g., via `map_err`),
+  the return type must be annotated. If you need to control whether the origin source chain continues
+  to accumulate, configure the report options first via `set_accumulate_src_chain()`.
 
-#### 2. `ReportResultExt` (on `Result<T, Report<E>>`)
-Proxy versions of all `Report` chained configuration methods:
-- **Metadata**: `with_severity`, `with_error_code`, `with_category`, `with_retryable`
-- **Attachments**: `attach`/`with_context`, `attach_printable`/`with_note`, `attach_payload`/`with_payload`
-- **Lazy Loading**: `context_lazy(key, f)`, `note_lazy(f)` (closure runs only on Err)
-- **Display Causes**: `with_display_cause(c)`, `with_display_causes(cc)`
-- **Source Errors**: `with_source_error(err)`
-- **Stack Trace**: `capture_stack_trace()`, `clear_stack_trace()`, `with_stack_trace(st)`
-- **Wrapping**: `wrap(outer)`, `wrap_with(map)`
+#### 2. `ResultReportExt` (on `Result<T, Report<E>>`)
+Instead of duplicating every `Report` method, this trait provides a single combinator:
+- `and_then_report(|r| r.with_ctx(...).with_severity(...))` — applies any chain of `Report` builder methods on the error path only
 
-#### 3. `ReportResultInspectExt` (on `Result<T, Report<E>>`)
+The closure receives an owned `Report` and must return an owned `Report`. On the `Ok` path the closure is never invoked, providing natural lazy semantics.
+
+#### 3. `InspectReportExt` (on `Result<T, Report<E>>`)
 Read-only helpers for error-path inspection without manually matching `Err`:
 - `report_ref()`, `report_metadata()`, `report_attachments()`
 - `report_error_code()`, `report_severity()`, `report_category()`, `report_retryable()`
@@ -304,12 +484,17 @@ use diagweave::prelude::*;
 use std::{fs, io};
 use std::time::SystemTime;
 
-fn process() -> Result<(), Report<io::Error>> {
+fn process() -> Result<(), Report<io::Error, HasSeverity>> {
+    let file_key = "file";
+    let timestamp_key = "timestamp";
     fs::read_to_string("config.toml")
-        .diag_context("file", "config.toml") // Converts and attaches context
-        .with_severity(Severity::Warn)
-        .context_lazy("timestamp", || format!("{:?}", SystemTime::now()).into())
-        .attach_printable("failed to load system config")?;
+        .to_report()
+        .and_then_report(|r| {
+            r.with_ctx(file_key, "config.toml")
+                .with_severity(Severity::Warn)
+                .with_ctx(timestamp_key, ContextValue::String(format!("{:?}", SystemTime::now()).into()))
+                .attach_printable("failed to load system config")
+        })?;
         
     Ok(())
 }
@@ -325,13 +510,12 @@ Manages the chain of triggers for a diagnostic. `diagweave` supports not only `s
 ### Display Cause Data
 | Type Name | Description |
 | :--- | :--- |
-| `DisplayCauseChain` | Runtime chain summary with `items: Vec<Box<dyn Display>>`, plus `truncated` and `cycle_detected`. |
+| `DisplayCauseChain` | Runtime chain summary with `items: Vec<Arc<dyn Display + Send + Sync + 'static>>`, plus `truncated` and `cycle_detected`. |
 
 ### Core Data Conversion: `AttachmentValue`
 Strongly typed values supported by `Report` attachments, converted automatically from base types:
 | Type | Rust Implementation Type | Description |
 | :--- | :--- | :--- |
-| `Null` | `None` / `()` | Null value |
 | `String` | `&str`, `String` | UTF-8 Text |
 | `Integer` | `i8..i64` | Signed Integer |
 | `Unsigned` | `u8..u64` | Unsigned Integer |
@@ -343,8 +527,8 @@ Strongly typed values supported by `Report` attachments, converted automatically
 | `Redacted` | `{ kind, reason }` | Placeholder for sensitive data |
 
 Attachment note access:
-- `Attachment::as_note() -> Option<Cow<'_, str>>` returns a materialized note string.
-- `Attachment::as_note_display() -> Option<&(dyn Display + 'static)>` returns a zero-allocation display reference.
+- `Attachment::as_note() -> Option<String>` returns a materialized note string.
+- `Attachment::as_note_display() -> Option<&(dyn Display + Send + Sync + 'static)>` returns a zero-allocation display reference.
 
 ---
 
@@ -367,31 +551,60 @@ Converts `Report` with rich metadata into displayable strings or structured data
 | `show_attachments_section`| `true`| Whether to show Attachments (Payload/Note) section |
 | `show_stack_trace_section`| `true`| Whether to show Stack Trace section |
 | `show_trace_section` | `true`| Whether to show Distributed Tracing (TraceID/Event) section |
+| `show_trace_event_details` | `true`| Whether to show trace event level, timestamp, and attributes in Pretty/JSON output |
 | `stack_trace_max_lines` | `24` | Maximum lines for raw stack trace rendering |
+| `stack_trace_include_raw` | `true` | Whether to include raw stack trace output when rendering stack traces |
+| `stack_trace_include_frames` | `true` | Whether to include parsed stack frames when rendering stack traces |
+| `stack_trace_filter` | `All` | Stack frame filtering strategy: `All` (all frames), `AppOnly` (filter std/runtime frames), `AppFocused` (also filter diagnostic-internal frames) |
+
+Preset configurations:
+| Preset | Description |
+| :--- | :--- |
+| `ReportRenderOptions::developer()` | Developer mode: full trace event details, unfiltered stack traces, up to 50 lines |
+| `ReportRenderOptions::production()` | Production incident mode: trace event details, app-only frames, up to 15 lines |
+| `ReportRenderOptions::minimal()` | Minimal mode: hides trace event details, focused frames, up to 5 lines, hides empty sections and type name |
+| `stack_trace_filter` | `All` | Stack frame filtering strategy: `All` (all frames), `AppOnly` (filter std/runtime frames), `AppFocused` (also filter diagnostic-internal frames) |
+
+Preset configurations:
+| Preset | Description |
+| :--- | :--- |
+| `ReportRenderOptions::developer()` | Developer mode: full trace event details, unfiltered stack traces, up to 50 lines |
+| `ReportRenderOptions::production()` | Production incident mode: trace event details, app-only frames, up to 15 lines |
+| `ReportRenderOptions::minimal()` | Minimal mode: hides trace event details, focused frames, up to 5 lines, hides empty sections and type name |
 
 
 ### Diagnostic Intermediate Representation (`DiagnosticIr`)
-Renderers don't process `Report` directly, but first convert it via `to_diagnostic_ir(options)` to a stable IR structure. The IR keeps header/metadata plus aggregate counters for attachment-related sections.
+Renderers don't process `Report` directly, but first convert it via `to_diagnostic_ir()` to a stable IR structure. The IR keeps the error node, metadata, trace reference, attachments, display causes, origin source errors, diagnostic source errors, and aggregate counters for attachment-related sections.
 ```rust
 use diagweave::render::{
     DiagnosticIrError, DiagnosticIrMetadata,
 };
+use diagweave::report::{
+    Attachment, CauseTraversalState, MissingSeverity, SourceErrorChain,
+};
+use std::fmt::Display;
+use std::sync::Arc;
 #[cfg(feature = "trace")]
 use diagweave::report::ReportTrace;
 #[cfg(feature = "json")]
-use std::borrow::Cow;
+use diagweave::StaticRefStr;
 
-pub struct DiagnosticIr<'a> {
+pub struct DiagnosticIr<'a, State = MissingSeverity> {
     #[cfg(feature = "json")]
-    pub schema_version: Cow<'static, str>,
+    pub schema_version: StaticRefStr,
     pub error: DiagnosticIrError<'a>,
-    pub metadata: DiagnosticIrMetadata<'a>,
+    pub metadata: DiagnosticIrMetadata<'a, State>,
     #[cfg(feature = "trace")]
-    pub trace: Option<&'a ReportTrace>,
-    pub context_count: usize,
-    pub attachment_count: usize,
+    pub trace: &'a ReportTrace,
+    pub attachments: &'a [Attachment],
+    pub display_causes: &'a [Arc<dyn Display + Send + Sync + 'static>],
+    pub display_causes_state: CauseTraversalState,
+    pub origin_source_errors: Option<SourceErrorChain>,
+    pub diagnostic_source_errors: Option<SourceErrorChain>,
 }
 ```
+
+`DiagnosticIrMetadata` now keeps its internal fields private and exposes read access through methods such as `error_code()`, `severity()`, `category()`, `retryable()`, and `stack_trace()`.
 
 Per-item context/note/payload traversal is exposed via `Report::visit_attachments(...)`.
 
@@ -409,20 +622,24 @@ use diagweave::render::ReportRenderOptions;
 # }
 # impl std::error::Error for DemoError {}
 # let report = Report::new(DemoError)
-#     .attach("request_id", "req-42")
+#     .with_ctx(
+#         "request_id",
+#         "req-42",
+#     )
 #     .attach_printable("note")
 #     .attach_payload("body", AttachmentValue::from("ok"), Some("text/plain"))
 #     .with_display_cause("retry later")
-#     .with_source_error(std::io::Error::other("upstream"));
+#     .with_diag_src_err(std::io::Error::other("upstream"));
 
-let ir = report.to_diagnostic_ir(ReportRenderOptions::default());
+let ir = report.to_diagnostic_ir();
 
-let context_count = ir.context_count;
-let attachment_count = ir.attachment_count;
+let context_count = ir.context.len();
+let attachment_count = ir.attachments.len();
 println!("context_count={context_count}, attachment_count={attachment_count}");
 ```
 
-`DiagnosticIrMetadata` does not expose `display_causes` / `source_errors`; traverse those from `Report` via `visit_causes*`, `visit_sources*`, or `iter_sources*`.
+`DiagnosticIr` keeps `display_causes` plus both source chains as structured data. In the JSON contract, both `origin_source_errors.type` and `diagnostic_source_errors.type` are `string | null`; `origin` commonly hits `null` due to natural `Error::source()` lossiness.
+The IR and adapter layers are borrow-first: error/type/trace string projections prefer `RefStr<'a>` so `to_tracing_fields()` and `to_otel_envelope_default()` avoid unnecessary `String` materialization on hot paths. OTEL export is intentionally limited to `DiagnosticIr<'a, HasSeverity>`.
 
 ### Usage Example
 ```rust
@@ -455,27 +672,31 @@ let json_str = report.json().to_string();
 
 ### Overview
 Exports diagnostic reports to monitoring systems or log streams.
-- **`trace` feature**: Provides the data model and `TracingExporterTrait` for custom exporters.
-- **`tracing` feature**: Provides the default implementation for the `tracing` crate and the `emit_tracing` shortcut.
+- **`trace` feature**: Provides the data model, `PreparedTracingEmission`, and `TracingExporterTrait` for custom exporters.
+- **`tracing` feature**: Provides the default implementation for the `tracing` crate plus `prepare_tracing` / `emit_tracing` helpers.
 
 ### Core API
 | Method | Description |
 | :--- | :--- |
-| `emit_tracing(&self, options)` | Triggers an `info` level event under current Span, carrying all Report fields as attributes |
-| `with_trace_ids(tid, sid)` | Manually binds tracing context (Trace ID / Span ID) |
+| `prepare_tracing(&self)` | Available on `Report<_, HasSeverity>` / `DiagnosticIr<_, HasSeverity>`; resolves final report/event levels and returns a prepared emission typestate |
+| `emit_tracing(&self)` | Convenience wrapper for `prepare_tracing().emit()` |
+| `with_trace_ids(tid, sid)` | Manually binds tracing context (Trace ID / Span ID). Parameters are `TraceId` / `SpanId`. |
 
 ### Export Behavior
 - **Attribute Mapping**: `Context` is mapped as named fields for the `tracing` event.
-- **Display Causes**: Display-cause messages are concatenated into an `error.causes` string.
+- **Structured Fields**: `report_display_causes`, `report_origin_source_errors / report_diagnostic_source_errors`, `report_stack_trace`, `report_context`, and `report_attachments` are emitted as structured debug fields.
+- **Empty Sections**: Empty `trace`, `context`, and `attachments` sections are omitted.
 - **Trace ID Binding**: If Report contains `TraceContext`, it is automatically associated, or associated via injector from current Span environment.
 
 ### Usage Example
 ```rust
-use diagweave::prelude::{Report, ReportRenderOptions};
+use diagweave::prelude::Report;
 use std::fmt;
 
 #[cfg(feature = "trace")]
-use diagweave::trace::TracingExporterTrait;
+use diagweave::prelude::{Severity, SpanId, TraceId};
+#[cfg(feature = "trace")]
+use diagweave::trace::{EmitStats, PreparedTracingEmission, TracingExporterTrait};
 
 #[derive(Debug)]
 struct MyError;
@@ -493,19 +714,31 @@ struct MyCustomExporter;
 
 #[cfg(feature = "trace")]
 impl TracingExporterTrait for MyCustomExporter {
-    fn export_ir(&self, _ir: &diagweave::render::DiagnosticIr) {}
+    fn export_prepared(&self, emission: PreparedTracingEmission<'_>) -> EmitStats {
+        emission.stats()
+    }
 }
 
 let report = Report::new(MyError);
-let options = ReportRenderOptions::default();
+#[cfg(feature = "trace")]
+let report = report.with_severity(Severity::Error);
+
+// Bind trace/span ids
+#[cfg(feature = "trace")]
+let report = report.with_trace_ids(
+    TraceId::from_str("4bf92f3577b34da6a3ce929d0e0e4736").unwrap(),
+    SpanId::from_str("00f067aa0ba902b7").unwrap(),
+);
 
 // Export to current tracing span with default options
 #[cfg(feature = "tracing")]
-report.emit_tracing(ReportRenderOptions::default());
+report.prepare_tracing().emit();
 
 // Use a custom exporter
 #[cfg(feature = "trace")]
-report.emit_tracing_with(&MyCustomExporter, options);
+report
+    .prepare_tracing()
+    .emit_with(&MyCustomExporter);
 ```
 
 ---
@@ -513,18 +746,20 @@ report.emit_tracing_with(&MyCustomExporter, options);
 ## 9. Cloud-Native Adaptation (OpenTelemetry)
 
 ### Overview
-`diagweave` provides adapters deeply integrated with OpenTelemetry (OTel) specifications, supporting conversion of rich diagnostic data into standard Envelope structures.
+`diagweave` provides adapters deeply integrated with OpenTelemetry (OTel) specifications, supporting conversion of rich diagnostic data into log/event records that follow the OTLP log data model. This area requires the `otel` feature.
 
 ### Conversion API
 | Method Declaration | Return Type | Description |
 | :--- | :--- | :--- |
-| `ir.to_otel_envelope()` | `OtelEnvelope` | OTel payload containing attributes and events |
-| `ir.to_tracing_fields()` | `Vec<TracingField>` | Converts to KV pairs for Tracing/Logging fields |
+| `ir.to_otel_envelope(config)` | `OtelEnvelope<'a>` | Available on `DiagnosticIr<'a, HasSeverity>`; converts to an OTLP-style batch of log/event records and accepts `OtelEnvelopeConfig` for namespace control |
+| `ir.to_otel_envelope_default()` | `OtelEnvelope<'a>` | Compatibility shortcut that uses the default OTEL naming behavior |
+| `ir.to_tracing_fields()` | `Vec<TracingField<'a>>` | Converts to KV pairs for Tracing/Logging fields |
 
 ### OTel Mapping Logic
-1. **Attributes**: Core error fields (message, code, type), severity/retry flags, cause-chain summaries, and report-level counters are mapped.
-2. **Events**: Internal `TraceEvent` from `Report` is converted into OTel event sequences.
-3. **TraceContext**: TraceID and SpanID are automatically filled into the top level of the Envelope.
+1. **Record fields**: The primary report becomes a log record with severity, timestamp-ready metadata, trace correlation fields, and a structured `body` error node.
+2. **Attributes**: Core error fields, retry/category flags, cause-chain summaries, and attachment/context data are emitted as structured OTEL attributes. Diagweave-owned keys can be namespaced through `OtelEnvelopeConfig`, while OTEL semantic-convention keys such as `exception.type` remain unchanged.
+3. **Trace events**: Internal `TraceEvent` values become additional OTLP-style log/event records with their own top-level timestamp, severity, and trace correlation fields.
+4. **Structure preservation**: `exception.stacktrace` and `diagnostic_bag.origin_source_errors / diagnostic_bag.diagnostic_source_errors` remain structured instead of string-flattened.
 
 ---
 
@@ -551,9 +786,9 @@ impl fmt::Display for MyError {
 impl std::error::Error for MyError {}
 
 #[cfg(feature = "json")]
-let _report = Report::new(MyError).with_payload(
+let _report = Report::new(MyError).attach_payload(
     "request_meta",
-    json!({ "version": "v1", "retry": 3 }),
+    AttachmentValue::from(json!({ "version": "v1", "retry": 3 })),
     Some("application/json")
 );
 ```
@@ -596,8 +831,12 @@ fn db_operation() -> Result<(), DatabaseError> {
 
 fn service_layer() -> Result<(), Report<AppError>> {
     db_operation()
-        .diag_context("db", "primary")
-        .wrap_with(AppError::Db)?; // Wraps DatabaseError as AppError, preserving DB-layer context
+        .to_report()
+        .and_then_report(|r| {
+            r.with_ctx("db", "primary")
+                .set_accumulate_src_chain(true)
+                .map_err(AppError::Db)
+        })?;
     Ok(())
 }
 ```
@@ -609,8 +848,12 @@ use diagweave::prelude::*;
 use std::fmt::{self, Display, Formatter};
 
 struct MyHtmlRenderer;
-impl<E: Display + std::error::Error + 'static> ReportRenderer<E> for MyHtmlRenderer {
-    fn render(&self, report: &Report<E>, f: &mut Formatter<'_>) -> fmt::Result {
+impl<E, State> ReportRenderer<E, State> for MyHtmlRenderer
+where
+    E: Display + std::error::Error + 'static,
+    State: SeverityState,
+{
+    fn render(&self, report: &Report<E, State>, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", report.pretty())
     }
 }
@@ -624,14 +867,20 @@ impl<E: Display + std::error::Error + 'static> ReportRenderer<E> for MyHtmlRende
 | :--- | :--- | :--- |
 | `std` | Yes | Standard library integrations (capture stack trace, global injector, etc.) |
 | `json` | No | `Json` renderer support (requires `serde` and `serde_json`) |
-| `trace` | No | Trace data model (`ReportTrace`, etc.) and pluggable exporter trait (`TracingExporterTrait`, `emit_tracing_with`) |
-| `tracing` | No | Default `tracing` crate integration (`TracingExporter`, `emit_tracing`). Automatically enables `trace`. |
+| `trace` | No | Trace data model (`ReportTrace`, etc.), prepared emission typestate (`PreparedTracingEmission`), and pluggable exporter trait (`TracingExporterTrait`) |
+| `otel` | No | OTLP envelope model (`OtelEnvelope`, `OtelEvent`, `OtelValue`), `OtelEnvelopeConfig`, and `to_otel_envelope(config)` / `to_otel_envelope_default()` on `DiagnosticIr<'_, HasSeverity>` |
+| `tracing` | No | Default `tracing` crate integration (`TracingExporter`, `prepare_tracing`, `emit_tracing`). Automatically enables `trace`. |
 
 ### Requirements Matrix
 - **`no_std`**: Supported by disabling default features. Requires `alloc`.
 - **`json`**: Requires `serde` with `derive` and `alloc` features, plus `serde_json` with `alloc`.
 - **`trace`**: Zero-dependency trace data structures.
+- **`otel`**: Requires no extra dependency by itself; enabled explicitly for OTLP envelope export.
 - **`tracing`**: Requires `tracing` crate.
+
+
+
+
 
 
 

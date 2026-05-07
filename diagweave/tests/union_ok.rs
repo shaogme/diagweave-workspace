@@ -34,13 +34,39 @@ impl Display for DbError {
 
 impl Error for DbError {}
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// Simple wrapper error used in union macro tests.
+pub struct SimpleError(&'static str);
+
+impl Display for SimpleError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "simple error: {}", self.0)
+    }
+}
+
+impl Error for SimpleError {}
+
 union! {
     #[derive(Clone)]
     pub enum ApiError = AuthError | DbError | {
         #[display("Rate limited for {retry_after_secs}s")]
         RateLimited { retry_after_secs: u64 },
+        #[display(transparent)]
+        Transparent(u32),
+        #[from]
+        Simple(SimpleError),
         #[display("Escaped braces {{db}} code={0}")]
         TupleEscaped(u32),
+    }
+}
+
+type CustomReport<T> = ::diagweave::report::Report<T>;
+
+union! {
+    #[diagweave(constructor_prefix = "api", report_path = "CustomReport")]
+    pub enum PrefixedError = {
+        #[display("prefixed {0}")]
+        Prefixed(u32),
     }
 }
 
@@ -56,9 +82,7 @@ fn wraps_external_error_types() {
 
 #[test]
 fn keeps_inline_variants() {
-    let api = ApiError::RateLimited {
-        retry_after_secs: 10,
-    };
+    let api = ApiError::rate_limited(10);
     match api {
         ApiError::RateLimited { retry_after_secs } => assert_eq!(retry_after_secs, 10),
         _ => panic!("unexpected variant"),
@@ -91,13 +115,57 @@ fn supports_alias_for_external_types() {
 #[test]
 fn union_display_works_for_wrapped_and_inline_variants() {
     let wrapped: ApiError = AuthError::InvalidToken.into();
-    let inline = ApiError::RateLimited {
-        retry_after_secs: 12,
-    };
+    let inline = ApiError::rate_limited(12);
+    let transparent = ApiError::transparent(42);
     let escaped = ApiError::TupleEscaped(88);
     assert_eq!(wrapped.to_string(), "auth token invalid");
     assert_eq!(inline.to_string(), "Rate limited for 12s");
+    assert_eq!(transparent.to_string(), "42");
     assert_eq!(escaped.to_string(), "Escaped braces {db} code=88");
     let dbg = format!("{:?}", inline);
     assert!(dbg.contains("RateLimited"));
+}
+
+#[test]
+fn generates_constructors_for_external_and_inline_variants() {
+    let wrapped = ApiError::auth_error(AuthError::InvalidToken);
+    match wrapped {
+        ApiError::AuthError(inner) => assert_eq!(inner, AuthError::InvalidToken),
+        _ => panic!("unexpected variant"),
+    }
+
+    let inline = ApiError::rate_limited(30);
+    match inline {
+        ApiError::RateLimited { retry_after_secs } => assert_eq!(retry_after_secs, 30),
+        _ => panic!("unexpected variant"),
+    }
+}
+
+#[test]
+fn generates_report_constructors() {
+    let report = ApiError::rate_limited_report(45);
+    assert_eq!(report.inner().to_string(), "Rate limited for 45s");
+}
+
+#[test]
+fn supports_constructor_prefix_and_report_path() {
+    let report: CustomReport<PrefixedError> = PrefixedError::api_prefixed_report(7);
+    assert_eq!(report.inner().to_string(), "prefixed 7");
+}
+
+#[test]
+fn from_attribute_generates_from_impls() {
+    let err = SimpleError("boom");
+    let api: ApiError = err.into();
+    match api {
+        ApiError::Simple(inner) => assert_eq!(inner, SimpleError("boom")),
+        _ => panic!("unexpected variant"),
+    }
+}
+
+#[test]
+fn union_enum_provides_diag_helpers() {
+    let report = ApiError::rate_limited(8).to_report();
+    assert_eq!(report.to_string(), "Rate limited for 8s");
+    assert!(ApiError::rate_limited(8).source().is_none());
 }

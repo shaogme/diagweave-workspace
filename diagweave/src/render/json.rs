@@ -1,66 +1,38 @@
 #[path = "json/attachment.rs"]
 mod attachment;
+#[path = "json/helpers.rs"]
+mod helpers;
 #[path = "json/report.rs"]
 mod report;
+#[cfg(feature = "trace")]
+#[path = "json/trace.rs"]
+mod trace;
 
 use core::error::Error;
-use core::fmt::{self, Display, Formatter, Write};
+use core::fmt::{self, Formatter, Write};
 
-use crate::report::{ErrorCode, Report};
+use crate::report::{Report, SeverityState};
 
-use super::{ReportRenderOptions, ReportRenderer};
+use super::REPORT_JSON_SCHEMA_VERSION;
+use super::ReportRenderOptions;
 
-const INDENT_SPACES: &str = {
-    const LEN: usize = 64;
-    const SPACES: [u8; LEN] = [b' '; LEN];
-    match alloc::str::from_utf8(&SPACES) {
-        Ok(s) => s,
-        Err(_) => panic!("Invalid UTF-8"),
-    }
+pub(super) use super::filtered_frames;
+pub(super) use helpers::{
+    close_array, close_object, write_array_item_prefix, write_error_code, write_indent,
+    write_json_display, write_json_string, write_object_field,
 };
-const HEX_DIGITS: &[u8; 16] = b"0123456789ABCDEF";
-
-/// A renderer that outputs the diagnostic report in JSON format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Json {
-    pub options: ReportRenderOptions,
-}
-
-pub const REPORT_JSON_SCHEMA_VERSION: &str = "v0.1.0";
-
-pub const REPORT_JSON_SCHEMA_DRAFT: &str = "https://json-schema.org/draft/2020-12/schema";
-
-/// Returns the JSON schema for the diagnostic report.
-pub fn report_json_schema() -> &'static str {
-    include_str!("../../schemas/report-v0.1.0.schema.json")
-}
-
-impl Json {
-    /// Creates a new JSON renderer with specific options.
-    pub fn new(options: ReportRenderOptions) -> Self {
-        Self { options }
-    }
-}
-
-impl<E> ReportRenderer<E> for Json
-where
-    E: Error + Display + 'static,
-{
-    fn render(&self, report: &Report<E>, f: &mut Formatter<'_>) -> fmt::Result {
-        render_json(report, self.options, f)
-    }
-}
-
-fn render_json<E>(
-    report: &Report<E>,
+pub(super) fn write_json_report<E, State>(
+    report: &Report<E, State>,
     options: ReportRenderOptions,
     f: &mut Formatter<'_>,
 ) -> fmt::Result
 where
-    E: Error + Display + 'static,
+    E: Error,
+    State: SeverityState,
 {
     let pretty = options.json_pretty;
     let mut first = true;
+    let section_flags = calc_section_flags(report);
 
     f.write_char('{')?;
     write_object_field(f, pretty, 0, &mut first, "schema_version", |f| {
@@ -69,24 +41,47 @@ where
     write_object_field(f, pretty, 0, &mut first, "error", |f| {
         report::write_error_object(f, pretty, 1, report.inner())
     })?;
-    write_object_field(f, pretty, 0, &mut first, "metadata", |f| {
-        report::write_metadata_object(f, pretty, 1, report)
-    })?;
-    write_object_field(f, pretty, 0, &mut first, "diagnostic_bag", |f| {
-        report::write_diag_bag(f, pretty, 1, report, options)
-    })?;
-    #[cfg(feature = "trace")]
-    if report.trace().is_some() {
-        write_object_field(f, pretty, 0, &mut first, "trace", |f| {
-            report::write_trace_object(f, pretty, 1, report)
+    if options.show_governance_section
+        && (options.show_empty_sections || section_flags.has_metadata)
+    {
+        write_object_field(f, pretty, 0, &mut first, "metadata", |f| {
+            report::write_metadata_object(f, pretty, 1, report)
         })?;
     }
-    write_object_field(f, pretty, 0, &mut first, "context", |f| {
-        attachment::write_context_array(f, pretty, 1, report)
-    })?;
-    write_object_field(f, pretty, 0, &mut first, "attachments", |f| {
-        attachment::write_attachments_array(f, pretty, 1, report)
-    })?;
+    if (options.show_stack_trace_section || options.show_cause_chains_section)
+        && (options.show_empty_sections || section_flags.has_diag_bag)
+    {
+        write_object_field(f, pretty, 0, &mut first, "diagnostic_bag", |f| {
+            report::write_diag_bag(f, pretty, 1, report, options)
+        })?;
+    }
+    #[cfg(feature = "trace")]
+    if options.show_trace_section && (options.show_empty_sections || !report.trace().is_empty()) {
+        write_object_field(f, pretty, 0, &mut first, "trace", |f| {
+            report::write_trace_object(f, pretty, 1, report, options)
+        })?;
+    }
+    #[cfg(not(feature = "trace"))]
+    if options.show_trace_section && options.show_empty_sections {
+        write_object_field(f, pretty, 0, &mut first, "trace", |f| f.write_str("{}"))?;
+    }
+    if options.show_context_section && (options.show_empty_sections || section_flags.has_context) {
+        write_object_field(f, pretty, 0, &mut first, "context", |f| {
+            attachment::write_context_object(f, pretty, 1, report)
+        })?;
+    }
+    if options.show_context_section && (options.show_empty_sections || section_flags.has_system) {
+        write_object_field(f, pretty, 0, &mut first, "system", |f| {
+            attachment::write_system_object(f, pretty, 1, report)
+        })?;
+    }
+    if options.show_attachments_section
+        && (options.show_empty_sections || section_flags.has_attachments)
+    {
+        write_object_field(f, pretty, 0, &mut first, "attachments", |f| {
+            attachment::write_attachments_array(f, pretty, 1, report)
+        })?;
+    }
 
     if pretty && !first {
         f.write_char('\n')?;
@@ -95,161 +90,68 @@ where
     f.write_char('}')
 }
 
-// Internal utilities used by submodules
-
-fn write_error_code(f: &mut Formatter<'_>, code: &ErrorCode) -> fmt::Result {
-    match code {
-        ErrorCode::Integer(v) => write!(f, "{v}"),
-        ErrorCode::String(v) => write_json_string(f, v),
-    }
+struct JsonSectionFlags {
+    has_metadata: bool,
+    has_context: bool,
+    has_system: bool,
+    has_attachments: bool,
+    has_diag_bag: bool,
 }
 
-fn write_option_string(f: &mut Formatter<'_>, value: Option<&str>) -> fmt::Result {
-    match value {
-        Some(v) => write_json_string(f, v),
-        None => f.write_str("null"),
-    }
-}
-
-pub(super) fn write_json_display(
-    f: &mut Formatter<'_>,
-    value: &(impl Display + ?Sized),
-) -> fmt::Result {
-    f.write_char('"')?;
-    {
-        let mut escaper = JsonStringEscaper { out: f };
-        write!(&mut escaper, "{value}")?;
-    }
-    f.write_char('"')
-}
-
-fn write_json_string(f: &mut Formatter<'_>, value: impl AsRef<str>) -> fmt::Result {
-    f.write_char('"')?;
-    {
-        let mut escaper = JsonStringEscaper { out: f };
-        escaper.write_str(value.as_ref())?;
-    }
-    f.write_char('"')
-}
-
-struct JsonStringEscaper<'a, 'b> {
-    out: &'a mut Formatter<'b>,
-}
-
-impl Write for JsonStringEscaper<'_, '_> {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        let bytes = s.as_bytes();
-        let mut start = 0usize;
-
-        for (idx, &b) in bytes.iter().enumerate() {
-            let escaped = match b {
-                b'"' => Some("\\\""),
-                b'\\' => Some("\\\\"),
-                b'\n' => Some("\\n"),
-                b'\r' => Some("\\r"),
-                b'\t' => Some("\\t"),
-                0x08 => Some("\\b"),
-                0x0C => Some("\\f"),
-                _ => None,
-            };
-
-            if let Some(seq) = escaped {
-                if start < idx {
-                    self.out.write_str(&s[start..idx])?;
-                }
-                self.out.write_str(seq)?;
-                start = idx + 1;
-                continue;
-            }
-
-            if b <= 0x1F {
-                if start < idx {
-                    self.out.write_str(&s[start..idx])?;
-                }
-                self.out.write_str("\\u00")?;
-                self.out.write_char(HEX_DIGITS[(b >> 4) as usize] as char)?;
-                self.out
-                    .write_char(HEX_DIGITS[(b & 0x0F) as usize] as char)?;
-                start = idx + 1;
-            }
-        }
-
-        if start < s.len() {
-            self.out.write_str(&s[start..])?;
-        }
-
-        Ok(())
-    }
-}
-
-fn write_object_field<F>(
-    f: &mut Formatter<'_>,
-    pretty: bool,
-    depth: usize,
-    first: &mut bool,
-    key: &str,
-    mut write_value: F,
-) -> fmt::Result
+fn calc_section_flags<E, State>(report: &Report<E, State>) -> JsonSectionFlags
 where
-    F: FnMut(&mut Formatter<'_>) -> fmt::Result,
+    E: Error,
+    State: SeverityState,
 {
-    if *first {
-        *first = false;
-    } else {
-        f.write_char(',')?;
+    let metadata = report.metadata();
+    let has_metadata = metadata.error_code().is_some()
+        || report.severity().is_some()
+        || metadata.category().is_some()
+        || metadata.retryable().is_some();
+    let has_context = !report.context().is_empty();
+    let has_system = !report.system().is_empty();
+    let has_attachments = !report.attachments().is_empty();
+    let has_diag_bag = has_stack_trace(report)
+        || has_display_causes(report)
+        || has_origin_source_errors(report)
+        || has_diag_source_errors(report);
+    JsonSectionFlags {
+        has_metadata,
+        has_context,
+        has_system,
+        has_attachments,
+        has_diag_bag,
     }
-    if pretty {
-        f.write_char('\n')?;
-        write_indent(f, depth + 1)?;
-    }
-    write_json_string(f, key)?;
-    f.write_char(':')?;
-    if pretty {
-        f.write_char(' ')?;
-    }
-    write_value(f)
 }
 
-fn write_array_item_prefix(
-    f: &mut Formatter<'_>,
-    pretty: bool,
-    depth: usize,
-    first: &mut bool,
-) -> fmt::Result {
-    if *first {
-        *first = false;
-    } else {
-        f.write_char(',')?;
-    }
-    if pretty {
-        f.write_char('\n')?;
-        write_indent(f, depth + 1)?;
-    }
-    Ok(())
+fn has_stack_trace<E, State>(report: &Report<E, State>) -> bool
+where
+    E: Error,
+    State: SeverityState,
+{
+    report.stack_trace().is_some()
 }
 
-fn close_object(f: &mut Formatter<'_>, pretty: bool, depth: usize, empty: bool) -> fmt::Result {
-    if pretty && !empty {
-        f.write_char('\n')?;
-        write_indent(f, depth)?;
-    }
-    f.write_char('}')
+fn has_display_causes<E, State>(report: &Report<E, State>) -> bool
+where
+    E: Error,
+    State: SeverityState,
+{
+    report.display_causes_chain().is_some()
 }
 
-fn close_array(f: &mut Formatter<'_>, pretty: bool, depth: usize, empty: bool) -> fmt::Result {
-    if pretty && !empty {
-        f.write_char('\n')?;
-        write_indent(f, depth)?;
-    }
-    f.write_char(']')
+fn has_origin_source_errors<E, State>(report: &Report<E, State>) -> bool
+where
+    E: Error,
+    State: SeverityState,
+{
+    report.origin_src_err_chain().is_some() || report.inner().source().is_some()
 }
 
-fn write_indent(f: &mut Formatter<'_>, depth: usize) -> fmt::Result {
-    let mut remaining = depth.saturating_mul(2);
-    while remaining > 0 {
-        let chunk = remaining.min(INDENT_SPACES.len());
-        f.write_str(&INDENT_SPACES[..chunk])?;
-        remaining -= chunk;
-    }
-    Ok(())
+fn has_diag_source_errors<E, State>(report: &Report<E, State>) -> bool
+where
+    E: Error,
+    State: SeverityState,
+{
+    report.diag_src_err_chain().is_some()
 }

@@ -59,6 +59,13 @@ set! {
     }
 }
 
+set! {
+    pub(crate) ScopedError = {
+        #[display("scoped error")]
+        Scoped,
+    }
+}
+
 #[test]
 fn converts_subset_into_union() {
     let auth = AuthError::PermissionDenied { id: 42 };
@@ -142,7 +149,7 @@ fn generated_constructors_support_prefix_configuration() {
 
 #[test]
 fn set_enum_provides_diag_helpers() {
-    let report = AuthError::InvalidToken.diag();
+    let report = AuthError::InvalidToken.to_report();
     assert_eq!(report.to_string(), "Invalid authentication token");
     assert!(AuthError::InvalidToken.source().is_none());
 }
@@ -154,4 +161,10 @@ fn from_and_transparent_display_work_for_wrapper_variants() {
 
     let cfg = WrapperError::config("missing field");
     assert_eq!(cfg.to_string(), "config parse failed: missing field");
+}
+
+#[test]
+fn set_visibility_respects_pub_crate() {
+    let err = ScopedError::scoped();
+    assert_eq!(err.to_string(), "scoped error");
 }

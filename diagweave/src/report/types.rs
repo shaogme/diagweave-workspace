@@ -1,26 +1,305 @@
 #[path = "types/attachment.rs"]
 pub mod attachment;
+#[path = "types/config.rs"]
+mod config;
+#[path = "types/context.rs"]
+pub mod context;
 #[path = "types/error.rs"]
 pub mod error;
+#[path = "types/source_error.rs"]
+mod source_error;
 
-use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::string::ToString;
+use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
+use core::any;
 use core::error::Error;
 use core::fmt::{self, Display, Formatter};
+use ref_str::StaticRefStr;
 
 pub use attachment::*;
+pub use config::*;
+pub use context::*;
 pub use error::*;
+pub use source_error::*;
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+mod severity_state {
+    /// A sealed trait marker for internal use only.
+    pub trait Sealed {}
+}
+
+/// Typestate marker for reports whose severity has not been set.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct MissingSeverity;
+
+/// Typestate marker for reports whose severity is present.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HasSeverity {
+    severity: Severity,
+}
+
+impl HasSeverity {
+    /// Creates a present severity typestate with the specified severity.
+    pub const fn new(severity: Severity) -> Self {
+        Self { severity }
+    }
+
+    /// Returns the guaranteed severity carried by this typestate.
+    pub const fn severity(self) -> Severity {
+        self.severity
+    }
+}
+
+impl severity_state::Sealed for MissingSeverity {}
+impl severity_state::Sealed for HasSeverity {}
+
+/// Typestate contract for report severity metadata.
+pub trait SeverityState: severity_state::Sealed + Clone + Copy + PartialEq + Eq {
+    /// Returns the severity represented by the typestate, if any.
+    fn severity(self) -> Option<Severity>;
+}
+
+impl SeverityState for MissingSeverity {
+    fn severity(self) -> Option<Severity> {
+        None
+    }
+}
+
+impl SeverityState for HasSeverity {
+    fn severity(self) -> Option<Severity> {
+        Some(self.severity)
+    }
+}
+
+#[cfg(feature = "json")]
+impl serde::Serialize for MissingSeverity {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_none()
+    }
+}
+
+#[cfg(feature = "json")]
+impl<'de> serde::Deserialize<'de> for MissingSeverity {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        match Option::<Severity>::deserialize(deserializer)? {
+            None => Ok(Self),
+            Some(_) => Err(serde::de::Error::custom("expected null severity typestate")),
+        }
+    }
+}
+
+#[cfg(feature = "json")]
+impl serde::Serialize for HasSeverity {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.severity.serialize(serializer)
+    }
+}
+
+#[cfg(feature = "json")]
+impl<'de> serde::Deserialize<'de> for HasSeverity {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Severity::deserialize(deserializer).map(Self::new)
+    }
+}
+
+/// Inner metadata structure containing the actual metadata fields.
+/// This is boxed inside ReportMetadata to enable lazy allocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
-pub struct ReportMetadata {
-    pub error_code: Option<ErrorCode>,
-    pub severity: Option<Severity>,
-    pub category: Option<Cow<'static, str>>,
-    pub retryable: Option<bool>,
+pub(crate) struct MetadataInner {
+    error_code: Option<ErrorCode>,
+    category: Option<StaticRefStr>,
+    retryable: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+/// Report metadata carried alongside a diagnostic.
+///
+/// Contains severity state and optional error code, category, and retryable flag.
+/// Uses lazy allocation via `Option<Box<MetadataInner>>` for the inner metadata to minimize overhead when empty.
+/// The `State` generic parameter tracks the severity typestate.
+pub struct ReportMetadata<State: SeverityState> {
+    severity: State,
+    #[cfg_attr(feature = "json", serde(flatten))]
+    inner: Option<Box<MetadataInner>>,
+}
+
+impl<State: SeverityState> ReportMetadata<State> {
+    /// Returns a reference to the severity state.
+    pub fn severity(&self) -> Option<Severity> {
+        self.severity.severity()
+    }
+
+    /// Returns the severity state.
+    pub fn severity_state(&self) -> State {
+        self.severity
+    }
+
+    /// Ensures the inner metadata is allocated, creating it if necessary.
+    fn ensure_inner(&mut self) -> &mut MetadataInner {
+        self.inner.get_or_insert_with(|| {
+            Box::new(MetadataInner {
+                error_code: None,
+                category: None,
+                retryable: None,
+            })
+        })
+    }
+
+    /// Returns the error code, if present.
+    pub fn error_code(&self) -> Option<&ErrorCode> {
+        self.inner.as_ref()?.error_code.as_ref()
+    }
+
+    /// Returns the category, if present.
+    pub fn category(&self) -> Option<&str> {
+        self.inner.as_ref()?.category.as_deref()
+    }
+
+    /// Returns whether the metadata marks the diagnostic as retryable, if present.
+    pub fn retryable(&self) -> Option<bool> {
+        self.inner.as_ref()?.retryable
+    }
+}
+
+impl ReportMetadata<MissingSeverity> {
+    /// Creates a new ReportMetadata with all fields set to None (lazy, not allocated yet).
+    pub fn new() -> Self {
+        Self {
+            severity: MissingSeverity,
+            inner: None,
+        }
+    }
+
+    /// Sets the severity, transitioning to `HasSeverity` typestate.
+    pub fn set_severity(self, severity: Severity) -> ReportMetadata<HasSeverity> {
+        ReportMetadata {
+            severity: HasSeverity::new(severity),
+            inner: self.inner,
+        }
+    }
+}
+
+impl Default for ReportMetadata<MissingSeverity> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ReportMetadata<HasSeverity> {
+    /// Sets the severity to a new value.
+    pub fn set_severity(mut self, severity: Severity) -> Self {
+        self.severity = HasSeverity::new(severity);
+        self
+    }
+}
+
+impl<State: SeverityState> ReportMetadata<State> {
+    /// Sets the error code, replacing any existing value.
+    pub fn set_error_code(mut self, error_code: impl Into<ErrorCode>) -> Self {
+        self.ensure_inner().error_code = Some(error_code.into());
+        self
+    }
+
+    /// Sets the error code, replacing any existing value (mutable reference version).
+    ///
+    /// This method avoids cloning the entire metadata when modifying in place.
+    pub fn set_error_code_mut(&mut self, error_code: impl Into<ErrorCode>) {
+        self.ensure_inner().error_code = Some(error_code.into());
+    }
+
+    /// Sets the error code only if not already set.
+    pub fn with_error_code(mut self, error_code: impl Into<ErrorCode>) -> Self {
+        if self.error_code().is_none() {
+            self.ensure_inner().error_code = Some(error_code.into());
+        }
+        self
+    }
+
+    /// Sets the error code only if not already set (mutable reference version).
+    ///
+    /// This method avoids cloning the entire metadata when modifying in place.
+    pub fn with_error_code_mut(&mut self, error_code: impl Into<ErrorCode>) {
+        if self.error_code().is_none() {
+            self.ensure_inner().error_code = Some(error_code.into());
+        }
+    }
+
+    /// Sets the category, replacing any existing value.
+    pub fn set_category(mut self, category: impl Into<StaticRefStr>) -> Self {
+        self.ensure_inner().category = Some(category.into());
+        self
+    }
+
+    /// Sets the category, replacing any existing value (mutable reference version).
+    ///
+    /// This method avoids cloning the entire metadata when modifying in place.
+    pub fn set_category_mut(&mut self, category: impl Into<StaticRefStr>) {
+        self.ensure_inner().category = Some(category.into());
+    }
+
+    /// Sets the category only if not already set.
+    pub fn with_category(mut self, category: impl Into<StaticRefStr>) -> Self {
+        if self.category().is_none() {
+            self.ensure_inner().category = Some(category.into());
+        }
+        self
+    }
+
+    /// Sets the category only if not already set (mutable reference version).
+    ///
+    /// This method avoids cloning the entire metadata when modifying in place.
+    pub fn with_category_mut(&mut self, category: impl Into<StaticRefStr>) {
+        if self.category().is_none() {
+            self.ensure_inner().category = Some(category.into());
+        }
+    }
+
+    /// Sets the retryability flag, replacing any existing value.
+    pub fn set_retryable(mut self, retryable: bool) -> Self {
+        self.ensure_inner().retryable = Some(retryable);
+        self
+    }
+
+    /// Sets the retryability flag, replacing any existing value (mutable reference version).
+    ///
+    /// This method avoids cloning the entire metadata when modifying in place.
+    pub fn set_retryable_mut(&mut self, retryable: bool) {
+        self.ensure_inner().retryable = Some(retryable);
+    }
+
+    /// Sets the retryability flag only if not already set.
+    pub fn with_retryable(mut self, retryable: bool) -> Self {
+        if self.retryable().is_none() {
+            self.ensure_inner().retryable = Some(retryable);
+        }
+        self
+    }
+
+    /// Sets the retryability flag only if not already set (mutable reference version).
+    ///
+    /// This method avoids cloning the entire metadata when modifying in place.
+    pub fn with_retryable_mut(&mut self, retryable: bool) {
+        if self.retryable().is_none() {
+            self.ensure_inner().retryable = Some(retryable);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,9 +313,9 @@ pub enum StackTraceFormat {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 pub struct StackFrame {
-    pub symbol: Option<String>,
-    pub module_path: Option<String>,
-    pub file: Option<String>,
+    pub symbol: Option<StaticRefStr>,
+    pub module_path: Option<StaticRefStr>,
+    pub file: Option<StaticRefStr>,
     pub line: Option<u32>,
     pub column: Option<u32>,
 }
@@ -45,15 +324,15 @@ pub struct StackFrame {
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 pub struct StackTrace {
     pub format: StackTraceFormat,
-    pub frames: Vec<StackFrame>,
-    pub raw: Option<String>,
+    pub frames: Arc<[StackFrame]>,
+    pub raw: Option<StaticRefStr>,
 }
 
 impl Default for StackTrace {
     fn default() -> Self {
         Self {
             format: StackTraceFormat::Native,
-            frames: Vec::new(),
+            frames: Vec::new().into(),
             raw: None,
         }
     }
@@ -68,15 +347,31 @@ impl StackTrace {
         }
     }
 
-    /// Appends frames to the stack trace.
-    pub fn with_frames(mut self, frames: Vec<StackFrame>) -> Self {
-        self.frames = frames;
+    /// Replaces the frames in the stack trace.
+    pub fn set_frames(mut self, frames: Vec<StackFrame>) -> Self {
+        self.frames = frames.into();
         self
     }
 
-    /// Sets the raw stack trace string.
-    pub fn with_raw(mut self, raw: impl Into<String>) -> Self {
+    /// Appends frames to the existing stack trace frames.
+    pub fn with_frames(mut self, frames: Vec<StackFrame>) -> Self {
+        let mut existing = self.frames.to_vec();
+        existing.extend(frames);
+        self.frames = existing.into();
+        self
+    }
+
+    /// Sets the raw stack trace string, replacing any existing value.
+    pub fn set_raw(mut self, raw: impl Into<StaticRefStr>) -> Self {
         self.raw = Some(raw.into());
+        self
+    }
+
+    /// Sets the raw stack trace string only if not already set.
+    pub fn with_raw(mut self, raw: impl Into<StaticRefStr>) -> Self {
+        if self.raw.is_none() {
+            self.raw = Some(raw.into());
+        }
         self
     }
 
@@ -86,8 +381,8 @@ impl StackTrace {
         let backtrace = std::backtrace::Backtrace::force_capture();
         Self {
             format: StackTraceFormat::Raw,
-            frames: Vec::new(),
-            raw: Some(backtrace.to_string()),
+            frames: Vec::new().into(),
+            raw: Some(backtrace.to_string().into()),
         }
     }
 }
@@ -101,499 +396,22 @@ pub struct CauseTraversalState {
     pub cycle_detected: bool,
 }
 
-/// The current stage of source error iteration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SourceErrorIterStage {
-    /// Iterating through explicitly attached source errors.
-    Attached,
-    /// Iterating through the natural `source()` chain of the inner error.
-    Inner,
-    /// Completed iteration.
-    Done,
+impl CauseTraversalState {
+    /// Merges traversal flags from another state.
+    pub fn merge_from(&mut self, other: Self) {
+        self.truncated |= other.truncated;
+        self.cycle_detected |= other.cycle_detected;
+    }
 }
 
 /// A streamed attachment item for visitor-based traversal.
 pub enum AttachmentVisit<'a> {
-    Context {
-        key: &'a Cow<'static, str>,
-        value: &'a AttachmentValue,
-    },
     Note {
-        message: &'a (dyn Display + 'static),
+        message: &'a (dyn Display + Send + Sync + 'static),
     },
     Payload {
-        name: &'a Cow<'static, str>,
+        name: &'a StaticRefStr,
         value: &'a AttachmentValue,
-        media_type: Option<&'a Cow<'static, str>>,
+        media_type: Option<&'a StaticRefStr>,
     },
-}
-
-/// Iterator over source errors with depth/cycle control.
-pub struct ReportSourceErrorIter<'a> {
-    pub(crate) source_errors: core::slice::Iter<'a, Box<dyn Error + 'static>>,
-    pub(crate) root_source: Option<&'a (dyn Error + 'static)>,
-    pub(crate) current: Option<&'a (dyn Error + 'static)>,
-    pub(crate) stage: SourceErrorIterStage,
-    pub(crate) depth: usize,
-    pub(crate) options: CauseCollectOptions,
-    pub(crate) seen: SeenErrorAddrs,
-    pub(crate) state: CauseTraversalState,
-}
-
-impl<'a> ReportSourceErrorIter<'a> {
-    /// Returns traversal state observed so far.
-    pub fn state(&self) -> CauseTraversalState {
-        self.state
-    }
-}
-
-impl<'a> Iterator for ReportSourceErrorIter<'a> {
-    type Item = &'a (dyn Error + 'static);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.state.truncated || self.state.cycle_detected {
-            self.stage = SourceErrorIterStage::Done;
-            return None;
-        }
-
-        loop {
-            let err = match self.current.take() {
-                Some(err) => err,
-                None => match self.stage {
-                    SourceErrorIterStage::Attached => {
-                        if let Some(err) = self.source_errors.next() {
-                            err.as_ref()
-                        } else {
-                            self.stage = SourceErrorIterStage::Inner;
-                            continue;
-                        }
-                    }
-                    SourceErrorIterStage::Inner => {
-                        let Some(err) = self.root_source.take() else {
-                            self.stage = SourceErrorIterStage::Done;
-                            return None;
-                        };
-                        err
-                    }
-                    SourceErrorIterStage::Done => return None,
-                },
-            };
-
-            if self.depth >= self.options.max_depth {
-                self.state.truncated = true;
-                self.stage = SourceErrorIterStage::Done;
-                return None;
-            }
-            if self.options.detect_cycle {
-                let ptr = (err as *const dyn Error) as *const ();
-                let addr = ptr as usize;
-                if !self.seen.insert(addr) {
-                    self.state.cycle_detected = true;
-                    self.stage = SourceErrorIterStage::Done;
-                    return None;
-                }
-            }
-            self.current = err.source();
-            self.depth += 1;
-            return Some(err);
-        }
-    }
-}
-
-#[derive(Default)]
-pub(crate) struct ColdData {
-    pub(crate) metadata: ReportMetadata,
-    pub(crate) diagnostics: DiagnosticBag,
-}
-
-#[derive(Default)]
-pub(crate) struct DiagnosticBag {
-    #[cfg(feature = "trace")]
-    pub(crate) trace: ReportTrace,
-    pub(crate) stack_trace: Option<StackTrace>,
-    pub(crate) attachments: Vec<Attachment>,
-    pub(crate) display_causes: Option<DisplayCauseChain>,
-    pub(crate) source_errors: Option<SourceErrorChain>,
-}
-
-pub(crate) const EMPTY_REPORT_METADATA: ReportMetadata = ReportMetadata {
-    error_code: None,
-    severity: None,
-    category: None,
-    retryable: None,
-};
-
-/// Global context information that can be injected into reports.
-#[derive(Debug, Clone, Default)]
-pub struct GlobalContext {
-    /// Context key-value pairs.
-    pub context: Vec<(Cow<'static, str>, AttachmentValue)>,
-    /// Global trace ID if available.
-    #[cfg(feature = "trace")]
-    pub trace_id: Option<Cow<'static, str>>,
-    /// Global span ID if available.
-    #[cfg(feature = "trace")]
-    pub span_id: Option<Cow<'static, str>>,
-    /// Global parent span ID if available.
-    #[cfg(feature = "trace")]
-    pub parent_span_id: Option<Cow<'static, str>>,
-}
-
-pub(crate) struct SeenErrorAddrs {
-    inline: [usize; 8],
-    len: usize,
-    spill: Vec<usize>,
-}
-
-impl SeenErrorAddrs {
-    pub(crate) fn new() -> Self {
-        Self {
-            inline: [0usize; 8],
-            len: 0,
-            spill: Vec::new(),
-        }
-    }
-
-    pub(crate) fn insert(&mut self, addr: usize) -> bool {
-        if self.contains(addr) {
-            return false;
-        }
-        if self.len < self.inline.len() {
-            self.inline[self.len] = addr;
-            self.len += 1;
-            return true;
-        }
-        self.spill.push(addr);
-        true
-    }
-
-    pub(crate) fn contains(&self, addr: usize) -> bool {
-        if self.inline[..self.len].contains(&addr) {
-            return true;
-        }
-        self.spill.contains(&addr)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(rename_all = "snake_case"))]
-pub enum CauseKind {
-    Error,
-    Event,
-}
-
-impl Display for CauseKind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let label = match self {
-            Self::Error => "error",
-            Self::Event => "event",
-        };
-        write!(f, "{label}")
-    }
-}
-
-/// Runtime display-cause chain captured in diagnostic bag.
-#[derive(Default)]
-pub struct DisplayCauseChain {
-    pub items: Vec<Box<dyn Display + 'static>>,
-    pub truncated: bool,
-    pub cycle_detected: bool,
-}
-
-impl Clone for DisplayCauseChain {
-    fn clone(&self) -> Self {
-        Self {
-            items: self
-                .items
-                .iter()
-                .map(|item| Box::new(item.to_string()) as Box<dyn Display + 'static>)
-                .collect(),
-            truncated: self.truncated,
-            cycle_detected: self.cycle_detected,
-        }
-    }
-}
-
-impl core::fmt::Debug for DisplayCauseChain {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let items: Vec<String> = self.items.iter().map(ToString::to_string).collect();
-        f.debug_struct("DisplayCauseChain")
-            .field("items", &items)
-            .field("truncated", &self.truncated)
-            .field("cycle_detected", &self.cycle_detected)
-            .finish()
-    }
-}
-
-impl PartialEq for DisplayCauseChain {
-    fn eq(&self, other: &Self) -> bool {
-        self.items
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            == other
-                .items
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-            && self.truncated == other.truncated
-            && self.cycle_detected == other.cycle_detected
-    }
-}
-
-impl Eq for DisplayCauseChain {}
-
-#[cfg(feature = "json")]
-impl serde::Serialize for DisplayCauseChain {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        #[derive(serde::Serialize)]
-        struct Helper {
-            items: Vec<String>,
-            truncated: bool,
-            cycle_detected: bool,
-        }
-        Helper {
-            items: self.items.iter().map(ToString::to_string).collect(),
-            truncated: self.truncated,
-            cycle_detected: self.cycle_detected,
-        }
-        .serialize(serializer)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct StringError(String);
-
-impl Display for StringError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl Error for StringError {}
-
-/// Runtime source-error chain captured in diagnostic bag.
-#[derive(Default)]
-pub struct SourceErrorChain {
-    pub items: Vec<Box<dyn Error + 'static>>,
-    pub truncated: bool,
-    pub cycle_detected: bool,
-}
-
-impl Clone for SourceErrorChain {
-    fn clone(&self) -> Self {
-        Self {
-            items: self
-                .items
-                .iter()
-                .map(|item| Box::new(StringError(item.to_string())) as Box<dyn Error + 'static>)
-                .collect(),
-            truncated: self.truncated,
-            cycle_detected: self.cycle_detected,
-        }
-    }
-}
-
-impl core::fmt::Debug for SourceErrorChain {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let items: Vec<String> = self.items.iter().map(ToString::to_string).collect();
-        f.debug_struct("SourceErrorChain")
-            .field("items", &items)
-            .field("truncated", &self.truncated)
-            .field("cycle_detected", &self.cycle_detected)
-            .finish()
-    }
-}
-
-impl PartialEq for SourceErrorChain {
-    fn eq(&self, other: &Self) -> bool {
-        self.items
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            == other
-                .items
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-            && self.truncated == other.truncated
-            && self.cycle_detected == other.cycle_detected
-    }
-}
-
-impl Eq for SourceErrorChain {}
-
-#[cfg(feature = "json")]
-impl serde::Serialize for SourceErrorChain {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        #[derive(serde::Serialize)]
-        struct Item {
-            message: String,
-        }
-        #[derive(serde::Serialize)]
-        struct Helper {
-            items: Vec<Item>,
-            truncated: bool,
-            cycle_detected: bool,
-        }
-        Helper {
-            items: self
-                .items
-                .iter()
-                .map(|v| Item {
-                    message: v.to_string(),
-                })
-                .collect(),
-            truncated: self.truncated,
-            cycle_detected: self.cycle_detected,
-        }
-        .serialize(serializer)
-    }
-}
-
-#[cfg(feature = "trace")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(rename_all = "snake_case"))]
-pub enum TraceEventLevel {
-    Trace,
-    Debug,
-    Info,
-    Warn,
-    Error,
-}
-
-#[cfg(feature = "trace")]
-impl Display for TraceEventLevel {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let label = match self {
-            Self::Trace => "trace",
-            Self::Debug => "debug",
-            Self::Info => "info",
-            Self::Warn => "warn",
-            Self::Error => "error",
-        };
-        write!(f, "{label}")
-    }
-}
-
-#[cfg(feature = "trace")]
-impl From<TraceEventLevel> for Cow<'static, str> {
-    fn from(value: TraceEventLevel) -> Self {
-        match value {
-            TraceEventLevel::Trace => "trace".into(),
-            TraceEventLevel::Debug => "debug".into(),
-            TraceEventLevel::Info => "info".into(),
-            TraceEventLevel::Warn => "warn".into(),
-            TraceEventLevel::Error => "error".into(),
-        }
-    }
-}
-
-#[cfg(feature = "trace")]
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
-pub struct TraceEventAttribute {
-    pub key: Cow<'static, str>,
-    pub value: AttachmentValue,
-}
-
-#[cfg(feature = "trace")]
-impl Default for TraceEventAttribute {
-    fn default() -> Self {
-        Self {
-            key: "".into(),
-            value: AttachmentValue::Null,
-        }
-    }
-}
-
-#[cfg(feature = "trace")]
-#[derive(Debug, Default, Clone, PartialEq)]
-#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
-pub struct TraceEvent {
-    pub name: Cow<'static, str>,
-    pub level: Option<TraceEventLevel>,
-    pub timestamp_unix_nano: Option<u64>,
-    pub attributes: Vec<TraceEventAttribute>,
-}
-
-#[cfg(feature = "trace")]
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
-pub struct TraceContext {
-    pub trace_id: Option<Cow<'static, str>>,
-    pub span_id: Option<Cow<'static, str>>,
-    pub parent_span_id: Option<Cow<'static, str>>,
-    pub sampled: Option<bool>,
-    pub trace_state: Option<Cow<'static, str>>,
-    pub flags: Option<u32>,
-}
-
-#[cfg(feature = "trace")]
-impl TraceContext {
-    /// Returns true if the trace context is empty (no IDs or flags).
-    pub fn is_empty(&self) -> bool {
-        self.trace_id.is_none()
-            && self.span_id.is_none()
-            && self.parent_span_id.is_none()
-            && self.sampled.is_none()
-            && self.trace_state.is_none()
-            && self.flags.is_none()
-    }
-}
-
-#[cfg(feature = "trace")]
-#[derive(Debug, Default, Clone, PartialEq)]
-#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
-pub struct ReportTrace {
-    pub context: TraceContext,
-    pub events: Vec<TraceEvent>,
-}
-
-#[cfg(feature = "trace")]
-impl ReportTrace {
-    /// Returns true if the report trace is empty (no context and no events).
-    pub fn is_empty(&self) -> bool {
-        self.context.is_empty() && self.events.is_empty()
-    }
-}
-
-/// Options for collecting cause messages from an error report.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CauseCollectOptions {
-    /// Maximum depth of causes to collect.
-    pub max_depth: usize,
-    /// Whether to detect cycles in the cause chain.
-    pub detect_cycle: bool,
-}
-
-impl Default for CauseCollectOptions {
-    fn default() -> Self {
-        Self {
-            max_depth: 16,
-            detect_cycle: true,
-        }
-    }
-}
-
-impl CauseCollectOptions {
-    /// Sets the maximum depth for cause collection.
-    pub fn with_max_depth(mut self, max_depth: usize) -> Self {
-        self.max_depth = max_depth;
-        self
-    }
-
-    /// Enables or disables cycle detection during cause collection.
-    pub fn with_cycle_detection(mut self, detect_cycle: bool) -> Self {
-        self.detect_cycle = detect_cycle;
-        self
-    }
 }

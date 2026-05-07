@@ -1,0 +1,27 @@
+---
+source: diagweave/tests/report_snapshots.rs
+expression: output
+---
+Error:
+  - message: api unauthorized
+  - type: report_snapshots::report_common::ApiError
+Governance:
+  - error_code: AUTH.INVALID_TOKEN
+  - severity: error
+Trace:
+  - (none)
+Stack Trace:
+  - (none)
+System:
+  - (none)
+Context:
+  - request_id: tx-snap-1
+Attachments:
+  - note: token expired at midnight
+Display Causes:
+  - (none)
+Origin Source Errors:
+  - message: auth invalid token
+  - type: report_snapshots::report_common::AuthError
+Diagnostic Source Errors:
+  - (none)

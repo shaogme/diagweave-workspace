@@ -1,6 +1,7 @@
 mod report_common;
 use diagweave::prelude::*;
-use diagweave::report::{CauseCollectOptions, ErrorCode, ErrorCodeIntError};
+use diagweave::render::{PrettyIndent, StackTraceFilter};
+use diagweave::report::{Attachment, ContextValue, StackTrace, StackTraceFormat};
 use report_common::*;
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -20,31 +21,34 @@ fn metadata_and_attachments_are_recorded_and_formatted() {
         .with_severity(Severity::Warn)
         .with_category("auth")
         .with_retryable(false)
-        .attach("request_id", "tx-100")
+        .with_ctx("request_id", "tx-100")
         .attach_printable("check authorization flow")
         .attach_payload(
             "auth_payload",
-            AttachmentValue::Object(payload),
-            Some("application/json".to_owned()),
+            AttachmentValue::from(payload),
+            Some("application/json"),
         );
 
-    assert_eq!(report.attachments().len(), 3);
-    assert!(matches!(
-        &report.attachments()[0],
-        Attachment::Context { key, value: AttachmentValue::String(value) }
-            if key == "request_id" && value == "tx-100"
-    ));
+    assert_eq!(report.context().len(), 1);
+    assert_eq!(report.attachments().len(), 2);
     assert_eq!(
-        report.attachments()[0].as_context(),
-        Some(("request_id", &AttachmentValue::String("tx-100".into())))
+        report
+            .context()
+            .iter()
+            .next()
+            .map(|(key, value)| (key.as_ref().to_owned(), value.clone())),
+        Some((
+            "request_id".to_owned(),
+            ContextValue::String("tx-100".into())
+        ))
     );
     assert_eq!(
-        report.attachments()[1].as_note(),
-        Some("check authorization flow".into())
+        report.attachments()[0].as_note(),
+        Some("check authorization flow".to_owned())
     );
-    assert!(report.attachments()[2].as_payload().is_some());
+    assert!(report.attachments()[1].as_payload().is_some());
     assert_eq!(
-        report.metadata().error_code.as_ref().map(|c| c.to_string()),
+        report.metadata().error_code().map(ToString::to_string),
         Some("AUTH.INVALID_TOKEN".to_owned())
     );
     assert_eq!(
@@ -59,15 +63,16 @@ fn diagweave_wraps_previous_report_as_source() {
 
     let inner = Report::new(AuthError::InvalidToken)
         .with_error_code("AUTH.INVALID_TOKEN")
-        .attach("request_id", "tx-2");
-    let outer = inner.wrap(ApiError::Unauthorized);
+        .with_ctx("request_id", "tx-2");
+    let outer = inner.map_err(|_| ApiError::Unauthorized);
 
-    assert_eq!(outer.to_string(), "api unauthorized");
-    let source = outer.source().expect("diagweave should preserve source");
+    // Now map_err accumulates source chain and preserves metadata
     assert_eq!(
-        source.to_string(),
-        "auth invalid token [code=AUTH.INVALID_TOKEN, request_id=tx-2]"
+        outer.to_string(),
+        "api unauthorized [code=AUTH.INVALID_TOKEN, request_id=tx-2]"
     );
+    let source = outer.source().expect("diagweave should preserve source");
+    assert_eq!(source.to_string(), "auth invalid token");
 }
 
 #[test]
@@ -76,14 +81,15 @@ fn diagweave_with_changes_context_and_keeps_metadata() {
 
     let outer = Report::new(AuthError::InvalidToken)
         .with_error_code("AUTH.INVALID_TOKEN")
-        .attach("request_id", "tx-9")
-        .wrap_with(|_| ApiError::Wrapped { code: 401 });
+        .with_ctx("request_id", "tx-9")
+        .map_err(|_| ApiError::Wrapped { code: 401 });
 
     assert_eq!(
         outer.to_string(),
         "api wrapped code=401 [code=AUTH.INVALID_TOKEN, request_id=tx-9]"
     );
-    assert!(outer.source().is_none());
+    // Now map_err accumulates source chain by default
+    assert!(outer.source().is_some());
 }
 
 fn fail_auth() -> Result<(), AuthError> {
@@ -110,7 +116,7 @@ fn report_debug_is_pretty_like_in_debug_profile() {
         "{:?}",
         Report::new(AuthError::InvalidToken)
             .with_error_code("AUTH.INVALID_TOKEN")
-            .attach("request_id", "tx-debug")
+            .with_ctx("request_id", "tx-debug")
     );
     assert!(debug_text.contains("Report:"));
     assert!(debug_text.contains("attachments:"));
@@ -131,18 +137,41 @@ fn result_ext_builds_report_chain() {
     let _guard = init_test();
 
     let err = fail_auth()
-        .diag()
-        .with_context("request_id", 77u64)
-        .with_error_code("AUTH.INVALID_TOKEN")
-        .wrap(ApiError::Unauthorized)
+        .diag(|r| {
+            r.with_ctx("request_id", 77u64)
+                .with_error_code("AUTH.INVALID_TOKEN")
+                .map_err(|_| ApiError::Unauthorized)
+        })
         .expect_err("should fail");
 
-    assert_eq!(err.to_string(), "api unauthorized");
-    let source = err.source().expect("outer should have source");
+    // Metadata is propagated to the outer error
     assert_eq!(
-        source.to_string(),
-        "auth invalid token [code=AUTH.INVALID_TOKEN, request_id=77]"
+        err.to_string(),
+        "api unauthorized [code=AUTH.INVALID_TOKEN, request_id=77]"
     );
+    let source = err.source().expect("outer should have source");
+    assert_eq!(source.to_string(), "auth invalid token");
+}
+
+#[test]
+fn result_ext_attach_payload_accepts_dynamic_media_type() {
+    let _guard = init_test();
+
+    let media_type = "application/json".to_owned();
+    let err = fail_auth()
+        .diag(|r| r.attach_payload("body", AttachmentValue::from("ok"), Some(media_type)))
+        .expect_err("should fail");
+
+    assert!(matches!(
+        &err.attachments()[0],
+        Attachment::Payload {
+            name,
+            value: AttachmentValue::String(value),
+            media_type: Some(media_type),
+        } if name == "body"
+            && value == "ok"
+            && media_type == "application/json"
+    ));
 }
 
 #[test]
@@ -163,16 +192,34 @@ fn global_context_injector_applies_to_new_reports() {
 
     let report = Report::new(AuthError::InvalidToken);
 
-    assert!(matches!(
-        &report.attachments()[0],
-        Attachment::Context { key, value: AttachmentValue::String(value) }
-            if key == "request_id" && value == "req-42"
-    ));
+    assert_eq!(report.context().len(), 1);
+    assert_eq!(
+        report
+            .context()
+            .iter()
+            .next()
+            .map(|(key, value)| (key.as_ref().to_owned(), value.clone())),
+        Some((
+            "request_id".to_owned(),
+            ContextValue::String("req-42".into())
+        ))
+    );
     #[cfg(feature = "trace")]
     {
-        let trace = report.trace().expect("trace should be injected");
-        assert_eq!(trace.context.trace_id.as_deref(), Some("trace-42"));
-        assert_eq!(trace.context.span_id.as_deref(), Some("span-42"));
+        let trace = report.trace();
+        assert!(!trace.is_empty(), "trace should be injected");
+        assert_eq!(
+            trace
+                .context()
+                .and_then(|ctx| ctx.trace_id.as_ref().map(|v| v.as_ref())),
+            Some("4bf92f3577b34da6a3ce929d0e0e4736")
+        );
+        assert_eq!(
+            trace
+                .context()
+                .and_then(|ctx| ctx.span_id.as_ref().map(|v| v.as_ref())),
+            Some("00f067aa0ba902b7")
+        );
     }
 }
 
@@ -186,9 +233,9 @@ fn global_context_injector_can_be_disabled_by_user_logic() {
     let report = Report::new(AuthError::InvalidToken);
     assert!(
         report
-            .attachments()
+            .context()
             .iter()
-            .all(|attachment| attachment.as_context().map(|(k, _)| k) != Some("request_id"))
+            .all(|(key, _)| key.as_ref() != "request_id")
     );
 }
 
@@ -197,17 +244,19 @@ fn result_ext_diagweave_with_maps_error() {
     let _guard = init_test();
 
     let err = fail_auth()
-        .diag()
-        .with_note("incoming token is stale")
-        .with_category("auth")
-        .wrap_with(|_| ApiError::Wrapped { code: 403 })
+        .diag(|r| {
+            r.attach_note("incoming token is stale")
+                .with_category("auth")
+                .map_err(|_| ApiError::Wrapped { code: 403 })
+        })
         .expect_err("should fail");
 
     assert_eq!(
         err.to_string(),
         "api wrapped code=403 [category=auth, incoming token is stale]"
     );
-    assert!(err.source().is_none());
+    // map_err accumulates source chain by default
+    assert!(err.source().is_some());
 }
 
 #[test]
@@ -217,20 +266,21 @@ fn lazy_context_and_note_evaluate_only_on_error() {
     let ok: Result<(), Report<AuthError>> = Ok(());
     let counter = std::cell::Cell::new(0usize);
     let _ = ok
-        .context_lazy("hot_path", || {
+        .and_then_report(|r| {
             counter.set(counter.get() + 1);
-            AttachmentValue::Bool(true)
+            r.with_ctx("hot_path", ContextValue::Bool(true))
         })
-        .note_lazy(|| {
+        .and_then_report(|r| {
             counter.set(counter.get() + 1);
-            "should not allocate".to_owned()
+            r.attach_note("should not allocate")
         });
     assert_eq!(counter.get(), 0);
 
     let err = fail_auth()
-        .diag()
-        .context_lazy("retry", || AttachmentValue::Unsigned(3))
-        .note_lazy(|| "token stale".to_owned())
+        .diag(|r| {
+            r.with_ctx("retry", ContextValue::Unsigned(3))
+                .attach_note("token stale")
+        })
         .expect_err("must fail");
     assert_eq!(err.to_string(), "auth invalid token [retry=3, token stale]");
 }
@@ -242,23 +292,40 @@ fn pretty_output_is_structured() {
     let pretty = Report::new(AuthError::InvalidToken)
         .with_error_code("AUTH.INVALID_TOKEN")
         .with_severity(Severity::Error)
-        .attach("request_id", "tx-pretty")
+        .with_ctx("request_id", "tx-pretty")
         .attach_payload(
             "raw_body",
             AttachmentValue::Bytes(vec![1, 2, 3]),
             Some("application/octet-stream".to_owned()),
         )
-        .wrap(ApiError::Unauthorized)
+        .map_err(|_| ApiError::Unauthorized)
         .pretty()
         .to_string();
 
     assert!(pretty.contains("Error:"));
-    assert!(pretty.contains("  - message: api unauthorized"));
+    assert!(pretty.contains(" - message: api unauthorized"));
     assert!(pretty.contains("Governance:"));
+    assert!(pretty.contains("- error_code: AUTH.INVALID_TOKEN"));
+    assert!(pretty.contains("- severity: error"));
     assert!(pretty.contains("Context:"));
+    assert!(pretty.contains("- request_id: tx-pretty"));
     assert!(pretty.contains("Attachments:"));
-    assert!(pretty.contains("Source Errors:"));
-    assert!(pretty.contains("auth invalid token [code=AUTH.INVALID_TOKEN, severity=error, request_id=tx-pretty, raw_body=<3 bytes> (application/octet-stream)]"));
+    assert!(pretty.contains("payload raw_body (application/octet-stream): <3 bytes>"));
+    assert!(pretty.contains("Origin Source Errors:"));
+    assert!(pretty.contains("- message: auth invalid token"));
+}
+
+#[test]
+fn pretty_indents_nested_source_errors() {
+    let _guard = init_test();
+
+    let pretty = Report::new(ApiError::Unauthorized)
+        .map_err(|_| ApiError::Wrapped { code: 500 })
+        .map_err(|_| ApiError::Wrapped { code: 501 })
+        .pretty()
+        .to_string();
+
+    assert!(pretty.contains("  - source:\n    - message:"));
 }
 
 #[test]
@@ -266,8 +333,8 @@ fn pretty_respects_max_source_depth() {
     let _guard = init_test();
 
     let report = Report::new(AuthError::InvalidToken)
-        .wrap(ApiError::Unauthorized)
-        .wrap(ApiError::Wrapped { code: 500 });
+        .map_err(|_| ApiError::Unauthorized)
+        .map_err(|_| ApiError::Wrapped { code: 500 });
 
     let options = ReportRenderOptions {
         max_source_depth: 1,
@@ -286,7 +353,7 @@ fn pretty_stops_on_cycle() {
     let pretty = report
         .render(Pretty::new(ReportRenderOptions::default()))
         .to_string();
-    assert!(pretty.contains("cycle detected and traversal stopped"));
+    assert!(pretty.contains("cycle detected and repeated branch skipped"));
 }
 
 #[test]
@@ -301,6 +368,7 @@ fn pretty_can_hide_type_and_empty_sections_and_change_indent() {
         show_empty_sections: false,
         show_governance_section: true,
         show_trace_section: true,
+        show_trace_event_details: true,
         show_stack_trace_section: true,
         show_context_section: true,
         show_attachments_section: true,
@@ -308,6 +376,7 @@ fn pretty_can_hide_type_and_empty_sections_and_change_indent() {
         stack_trace_max_lines: 24,
         stack_trace_include_raw: true,
         stack_trace_include_frames: true,
+        stack_trace_filter: StackTraceFilter::All,
         json_pretty: false,
     };
     let pretty = Report::new(AuthError::InvalidToken)
@@ -321,6 +390,25 @@ fn pretty_can_hide_type_and_empty_sections_and_change_indent() {
     assert!(!pretty.contains("Attachments:"));
     assert!(!pretty.contains("Display Causes:"));
     assert!(!pretty.contains("Source Errors:"));
+}
+
+#[test]
+fn pretty_can_hide_type_names_in_source_chains() {
+    let _guard = init_test();
+
+    let pretty = Report::new(ApiError::Unauthorized)
+        .with_diag_src_err(AuthError::InvalidToken)
+        .render(Pretty::new(ReportRenderOptions {
+            show_type_name: false,
+            show_cause_chains_section: true,
+            show_empty_sections: true,
+            ..ReportRenderOptions::default()
+        }))
+        .to_string();
+
+    assert!(pretty.contains("Source Errors:"));
+    assert!(pretty.contains("auth invalid token"));
+    assert!(!pretty.contains("- type:"));
 }
 
 #[test]
@@ -360,145 +448,7 @@ fn report_field_getters_are_exposed() {
         Some("AUTH.INVALID_TOKEN".to_owned())
     );
     assert_eq!(report.severity(), Some(Severity::Warn));
+    assert_eq!(report.severity(), Some(Severity::Warn));
     assert_eq!(report.category(), Some("auth"));
     assert_eq!(report.retryable(), Some(false));
-}
-
-#[test]
-fn public_cause_visit_apis_are_accessible() {
-    let _guard = init_test();
-
-    let report = Report::new(AuthError::InvalidToken)
-        .with_display_cause("token stale")
-        .with_source_error(ApiError::Unauthorized);
-    let mut display = Vec::new();
-    let display_state = report
-        .visit_causes(|cause| {
-            display.push(cause.to_string());
-            Ok(())
-        })
-        .expect("display causes");
-    let mut source = Vec::new();
-    let source_state = report
-        .visit_sources(|err| {
-            source.push(err.to_string());
-            Ok(())
-        })
-        .expect("source errors");
-
-    assert_eq!(display, vec!["token stale".to_owned()]);
-    assert_eq!(source, vec!["api unauthorized".to_owned()]);
-    assert!(!display_state.truncated);
-    assert!(!display_state.cycle_detected);
-    assert!(!source_state.truncated);
-    assert!(!source_state.cycle_detected);
-
-    let cycle = Report::new(LoopError)
-        .visit_sources_ext(
-            CauseCollectOptions {
-                max_depth: 8,
-                detect_cycle: true,
-            },
-            |_| Ok(()),
-        )
-        .expect("cycle traversal");
-    assert!(cycle.cycle_detected);
-
-    let mut iter = report.iter_sources_ext(CauseCollectOptions {
-        max_depth: 4,
-        detect_cycle: true,
-    });
-    let collected: Vec<String> = iter.by_ref().map(|err| err.to_string()).collect();
-    let iter_state = iter.state();
-    assert_eq!(collected, vec!["api unauthorized".to_owned()]);
-    assert!(!iter_state.truncated);
-    assert!(!iter_state.cycle_detected);
-}
-
-#[test]
-fn result_inspect_ext_reads_report_fields() {
-    let _guard = init_test();
-
-    let err: Result<(), Report<AuthError>> = fail_auth()
-        .diag()
-        .with_error_code("AUTH.INVALID_TOKEN")
-        .with_severity(Severity::Error)
-        .with_category("auth")
-        .with_retryable(false)
-        .with_context("request_id", "req-inspect");
-
-    assert_eq!(
-        err.report_error_code().map(ToString::to_string),
-        Some("AUTH.INVALID_TOKEN".to_owned())
-    );
-    assert_eq!(err.report_severity(), Some(Severity::Error));
-    assert_eq!(err.report_category(), Some("auth"));
-    assert_eq!(err.report_retryable(), Some(false));
-    assert_eq!(err.report_attachments().map(|items| items.len()), Some(1));
-
-    let ok: Result<(), Report<AuthError>> = Ok(());
-    assert!(ok.report_ref().is_none());
-}
-
-#[test]
-fn pretty_options_can_hide_specific_sections() {
-    let _guard = init_test();
-
-    let report = Report::new(ApiError::Unauthorized)
-        .with_error_code("API.UNAUTHORIZED")
-        .attach("request_id", "req-sec-1");
-    let opts = ReportRenderOptions {
-        show_empty_sections: true,
-        show_governance_section: false,
-        show_context_section: false,
-        show_attachments_section: false,
-        show_cause_chains_section: false,
-        ..ReportRenderOptions::default()
-    };
-    let pretty = report.render(Pretty::new(opts)).to_string();
-    assert!(!pretty.contains("Governance:"));
-    assert!(!pretty.contains("Context:"));
-    assert!(!pretty.contains("Attachments:"));
-    assert!(!pretty.contains("Display Causes:"));
-    assert!(!pretty.contains("Source Errors:"));
-}
-
-#[test]
-fn error_code_accepts_try_into_integers_and_falls_back_to_string() {
-    let _guard = init_test();
-
-    assert_eq!(ErrorCode::from(42usize), ErrorCode::Integer(42));
-    assert_eq!(ErrorCode::from(-7isize), ErrorCode::Integer(-7));
-
-    let too_large = u128::MAX;
-    let code = ErrorCode::from(too_large);
-    assert_eq!(code, ErrorCode::String(too_large.to_string().into()));
-    assert_eq!(code.to_string(), too_large.to_string());
-}
-
-#[test]
-fn error_code_supports_try_into_integer_and_into_string() {
-    let _guard = init_test();
-
-    let v: i32 = ErrorCode::from("42")
-        .try_into()
-        .expect("string integer should parse");
-    assert_eq!(v, 42);
-
-    let by_ref: u64 = (&ErrorCode::from(9u8))
-        .try_into()
-        .expect("integer variant should convert");
-    assert_eq!(by_ref, 9);
-
-    let out_of_range: Result<u8, ErrorCodeIntError> = ErrorCode::from(300i32).try_into();
-    assert_eq!(out_of_range, Err(ErrorCodeIntError::OutOfRange));
-
-    let invalid: Result<i64, ErrorCodeIntError> = ErrorCode::from("E_AUTH").try_into();
-    assert_eq!(invalid, Err(ErrorCodeIntError::InvalidIntegerString));
-
-    let s_from_into: String = ErrorCode::from(123u16).into();
-    assert_eq!(s_from_into, "123");
-
-    let s_from_to_string = ErrorCode::from("AUTH.INVALID_TOKEN").to_string();
-    assert_eq!(s_from_to_string, "AUTH.INVALID_TOKEN");
 }

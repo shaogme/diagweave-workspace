@@ -1,188 +1,199 @@
+use super::ReportMetadata;
 use core::error::Error;
 use core::fmt::{self, Debug, Display, Formatter};
 
-use crate::report::Attachment;
+use super::Attachment;
+use super::SourceErrorChain;
 
-use super::Report;
+use super::{Report, SeverityState};
 
-impl<E> Debug for Report<E>
+/// Macro to write a field with separator handling.
+/// Writes ", " before the field if idx > 0, then increments idx.
+macro_rules! write_field {
+    ($f:expr, $idx:expr, $name:expr, $val:expr) => {{
+        if $idx > 0 {
+            write!($f, ", ")?;
+        }
+        write!($f, "{}={}", $name, $val)?;
+        $idx += 1;
+    }};
+}
+
+/// Macro to write raw content with separator handling.
+/// Writes ", " before the content if idx > 0, then increments idx.
+macro_rules! write_raw {
+    ($f:expr, $idx:expr, $($arg:tt)*) => {{
+        if $idx > 0 {
+            write!($f, ", ")?;
+        }
+        write!($f, $($arg)*)?;
+        $idx += 1;
+    }};
+}
+
+impl<E, State> Debug for Report<E, State>
 where
     E: Debug,
+    State: SeverityState + Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         #[cfg(debug_assertions)]
         {
             writeln!(f, "Report:")?;
-            writeln!(f, "  - error: {:?}", self.inner())?;
-            writeln!(f, "  - metadata: {:?}", self.metadata())?;
-            if let Some(diag) = self.diagnostics() {
-                writeln!(f, "  - attachments:")?;
-                if diag.attachments.is_empty() {
-                    writeln!(f, "    - (none)")?;
-                } else {
-                    for attachment in &diag.attachments {
-                        writeln!(f, "    - {:?}", attachment)?;
-                    }
-                }
-                #[cfg(feature = "trace")]
-                writeln!(f, "  - trace: {:?}", diag.trace)?;
-                let display_causes = diag
-                    .display_causes
-                    .as_ref()
-                    .map(|v| v.items.as_slice())
-                    .unwrap_or(&[]);
-                if display_causes.is_empty() {
-                    writeln!(f, "  - display_causes: (none)")?;
-                } else {
-                    writeln!(f, "  - display_causes:")?;
-                    for cause in display_causes {
-                        writeln!(f, "    - {}", cause)?;
-                    }
-                }
+            writeln!(f, " - error: {:?}", Report::<E, State>::inner(self))?;
+            writeln!(f, " - metadata: {:?}", Report::<E, State>::metadata(self))?;
+            let diag: &super::DiagnosticBag = Report::<E, State>::diagnostics(self);
+            writeln!(f, " - attachments:")?;
+            if diag.attachments().is_empty() {
+                writeln!(f, " - (none)")?;
             } else {
-                writeln!(f, "  - attachments: (none)")?;
-                #[cfg(feature = "trace")]
-                writeln!(f, "  - trace: (none)")?;
-                writeln!(f, "  - display_causes: (none)")?;
+                for attachment in diag.attachments() {
+                    writeln!(f, " - {:?}", attachment)?;
+                }
+            }
+            #[cfg(feature = "trace")]
+            writeln!(f, " - trace: {:?}", Report::<E, State>::trace(self))?;
+            let display_causes = diag
+                .display_causes()
+                .map(|v| v.items.as_slice())
+                .unwrap_or(&[]);
+            if display_causes.is_empty() {
+                writeln!(f, " - display_causes: (none)")?;
+            } else {
+                writeln!(f, " - display_causes:")?;
+                for cause in display_causes {
+                    writeln!(f, " - {}", cause)?;
+                }
             }
             Ok(())
         }
         #[cfg(not(debug_assertions))]
         {
             f.debug_struct("Report")
-                .field("inner", self.inner())
-                .field("cold", &self.cold)
+                .field("inner", Report::<E, State>::inner(self))
+                .field("bag", &self.data.bag)
                 .finish()
         }
     }
 }
 
-impl<E> Display for Report<E>
+impl<E, State> Display for Report<E, State>
 where
     E: Display,
+    State: SeverityState,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.inner())?;
-        let metadata = self.metadata();
-        let has_metadata = metadata.error_code.is_some()
-            || metadata.severity.is_some()
-            || metadata.category.is_some()
-            || metadata.retryable.is_some();
-        let has_diagnostics = self.diagnostics().is_some_and(|diag| {
-            diag.stack_trace.is_some() || !diag.attachments.is_empty() || {
+        write!(f, "{}", Report::<E, State>::inner(self))?;
+        let metadata = Report::<E, State>::metadata(self);
+        let has_metadata = metadata.error_code().is_some()
+            || Report::<E, State>::severity(self).is_some()
+            || metadata.category().is_some()
+            || metadata.retryable().is_some();
+        let diag: &super::DiagnosticBag = Report::<E, State>::diagnostics(self);
+        let has_diagnostics = diag.stack_trace().is_some()
+            || !diag.context().is_empty()
+            || !diag.system().is_empty()
+            || !diag.attachments().is_empty()
+            || {
                 #[cfg(feature = "trace")]
                 {
-                    !diag.trace.is_empty()
+                    !Report::<E, State>::trace(self).is_empty()
                 }
                 #[cfg(not(feature = "trace"))]
                 {
                     false
                 }
-            }
-        });
+            };
         if !has_diagnostics && !has_metadata {
             return Ok(());
         }
         write!(f, " [")?;
         let mut idx = 0usize;
-        self.fmt_metadata_fields(f, &mut idx)?;
-        self.fmt_diag_fields(f, &mut idx)?;
+        Report::<E, State>::fmt_metadata_fields(self, f, &mut idx)?;
+        Report::<E, State>::fmt_diag_fields(self, f, &mut idx)?;
         write!(f, "]")
     }
 }
 
-impl<E> Report<E>
+impl<E, State> Report<E, State>
 where
     E: Display,
+    State: SeverityState,
 {
     fn fmt_metadata_fields(&self, f: &mut Formatter<'_>, idx: &mut usize) -> fmt::Result {
-        let metadata = self.metadata();
-        let mut write_field = |name: &str, val: &dyn Display| -> fmt::Result {
-            if *idx > 0 {
-                write!(f, ", ")?;
-            }
-            write!(f, "{name}={val}")?;
-            *idx += 1;
-            Ok(())
-        };
-        if let Some(code) = &metadata.error_code {
-            write_field("code", code)?;
+        let metadata: &ReportMetadata<State> = Report::<E, State>::metadata(self);
+        if let Some(code) = metadata.error_code() {
+            write_field!(f, *idx, "code", code);
         }
-        if let Some(sev) = metadata.severity {
-            write_field("severity", &sev)?;
+        if let Some(sev) = Report::<E, State>::severity(self) {
+            write_field!(f, *idx, "severity", &sev);
         }
-        if let Some(cat) = &metadata.category {
-            write_field("category", cat)?;
+        if let Some(cat) = metadata.category() {
+            write_field!(f, *idx, "category", &cat);
         }
-        if let Some(ret) = metadata.retryable {
-            write_field("retryable", &ret)?;
+        if let Some(ret) = metadata.retryable() {
+            write_field!(f, *idx, "retryable", &ret);
         }
         Ok(())
     }
 
     fn fmt_diag_fields(&self, f: &mut Formatter<'_>, idx: &mut usize) -> fmt::Result {
-        if let Some(diag) = self.diagnostics() {
-            #[cfg(feature = "trace")]
-            {
-                let mut write_field = |name: &str, val: &dyn Display| -> fmt::Result {
-                    if *idx > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{name}={val}")?;
-                    *idx += 1;
-                    Ok(())
-                };
+        let diag: &super::DiagnosticBag = Report::<E, State>::diagnostics(self);
 
-                if let Some(tid) = &diag.trace.context.trace_id {
-                    write_field("trace_id", tid)?;
+        #[cfg(feature = "trace")]
+        {
+            let trace = Report::<E, State>::trace(self);
+            if let Some(context) = trace.context() {
+                if let Some(tid) = &context.trace_id {
+                    write_field!(f, *idx, "trace_id", tid.as_ref());
                 }
-                if let Some(sid) = &diag.trace.context.span_id {
-                    write_field("span_id", sid)?;
+                if let Some(sid) = &context.span_id {
+                    write_field!(f, *idx, "span_id", sid.as_ref());
                 }
-            }
-
-            if diag.stack_trace.is_some() {
-                if *idx > 0 {
-                    write!(f, ", ")?;
-                }
-                write!(f, "stack_trace=present")?;
-                *idx += 1;
-            }
-
-            for attachment in &diag.attachments {
-                if *idx > 0 {
-                    write!(f, ", ")?;
-                }
-                match attachment {
-                    Attachment::Context { key, value } => write!(f, "{key}={value}")?,
-                    Attachment::Note { message } => write!(f, "{message}")?,
-                    Attachment::Payload {
-                        name,
-                        value,
-                        media_type,
-                    } => match media_type {
-                        Some(mt) => write!(f, "{name}={value} ({mt})")?,
-                        None => write!(f, "{name}={value}")?,
-                    },
-                }
-                *idx += 1;
             }
         }
+
+        if diag.stack_trace().is_some() {
+            write_field!(f, *idx, "stack_trace", "present");
+        }
+
+        for (key, value) in diag.context().sorted_entries() {
+            write_field!(f, *idx, key, value);
+        }
+
+        for (key, value) in diag.system().sorted_entries() {
+            write_field!(f, *idx, format_args!("system.{}", key), value);
+        }
+
+        for attachment in diag.attachments() {
+            match attachment {
+                Attachment::Note { message } => {
+                    write_raw!(f, *idx, "{}", message);
+                }
+                Attachment::Payload {
+                    name,
+                    value,
+                    media_type,
+                } => match media_type {
+                    Some(mt) => write_raw!(f, *idx, "{}={} ({})", name, value, mt),
+                    None => write_raw!(f, *idx, "{}={}", name, value),
+                },
+            }
+        }
+
         Ok(())
     }
 }
 
-impl<E> Error for Report<E>
+impl<E, State> Error for Report<E, State>
 where
     E: Error + 'static,
+    State: SeverityState + Debug,
 {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.diagnostics()
-            .and_then(|diag| {
-                diag.source_errors
-                    .as_ref()
-                    .and_then(|v| v.items.first().map(|err| err.as_ref()))
-            })
-            .or_else(|| self.inner().source())
+        Report::<E, State>::diagnostics(self)
+            .origin_src_errors()
+            .and_then(SourceErrorChain::first_error)
+            .or_else(|| Report::<E, State>::inner(self).source())
     }
 }

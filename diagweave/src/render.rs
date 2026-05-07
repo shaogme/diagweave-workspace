@@ -1,24 +1,71 @@
+#[path = "render/ir.rs"]
+mod ir;
 #[cfg(feature = "json")]
 #[path = "render/json.rs"]
 mod json;
+#[cfg(all(feature = "json", feature = "otel"))]
+#[path = "render/otel_snapshot.rs"]
+mod otel_snapshot;
 #[path = "render/pretty.rs"]
 mod pretty;
+#[path = "render/stack_filter.rs"]
+mod stack_filter;
 
-use alloc::borrow::Cow;
-use alloc::borrow::ToOwned;
 use alloc::string::{String, ToString};
-use core::any;
-use core::error::Error;
 use core::fmt::{self, Display, Formatter};
 
-#[cfg(feature = "trace")]
-use crate::report::ReportTrace;
-use crate::report::{AttachmentVisit, ErrorCode, Report, Severity, StackTrace};
+use crate::report::{HasSeverity, Report, SeverityState};
 
+#[cfg(feature = "trace")]
+pub(crate) use ir::build_ctx_and_attachments;
+#[cfg(feature = "trace")]
+pub(crate) use ir::build_error_value;
+#[cfg(feature = "trace")]
+pub(crate) use ir::build_trace_value;
+pub use ir::{DiagnosticIr, DiagnosticIrError, DiagnosticIrMessage, DiagnosticIrMetadata};
+#[cfg(feature = "trace")]
+pub(crate) use ir::{
+    build_diag_src_errs_val, build_display_causes, build_origin_src_errs_val,
+    build_stack_trace_value,
+};
 pub use pretty::Pretty;
+pub(crate) use stack_filter::filtered_frames;
 
 #[cfg(feature = "json")]
-pub use json::{Json, REPORT_JSON_SCHEMA_DRAFT, REPORT_JSON_SCHEMA_VERSION, report_json_schema};
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// JSON renderer for diagnostic reports.
+pub struct Json {
+    pub options: ReportRenderOptions,
+}
+
+#[cfg(feature = "json")]
+impl Json {
+    /// Creates a new JSON renderer with specific options.
+    pub fn new(options: ReportRenderOptions) -> Self {
+        Self { options }
+    }
+}
+
+#[cfg(feature = "json")]
+impl<E, State> ReportRenderer<E, State> for Json
+where
+    E: core::error::Error,
+    State: SeverityState,
+{
+    fn render(&self, report: &Report<E, State>, f: &mut Formatter<'_>) -> fmt::Result {
+        json::write_json_report(report, self.options, f)
+    }
+}
+
+#[cfg(feature = "json")]
+pub const REPORT_JSON_SCHEMA_VERSION: &str = "v0.1.0";
+#[cfg(feature = "json")]
+pub const REPORT_JSON_SCHEMA_DRAFT: &str = "https://json-schema.org/draft/2020-12/schema";
+#[cfg(feature = "json")]
+/// Returns the JSON schema for rendered reports.
+pub fn report_json_schema() -> &'static str {
+    include_str!("../schemas/report-v0.1.0.schema.json")
+}
 
 /// Options for rendering a diagnostic report.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +78,7 @@ pub struct ReportRenderOptions {
     pub show_empty_sections: bool,
     pub show_governance_section: bool,
     pub show_trace_section: bool,
+    pub show_trace_event_details: bool,
     pub show_stack_trace_section: bool,
     pub show_context_section: bool,
     pub show_attachments_section: bool,
@@ -38,6 +86,7 @@ pub struct ReportRenderOptions {
     pub stack_trace_max_lines: usize,
     pub stack_trace_include_raw: bool,
     pub stack_trace_include_frames: bool,
+    pub stack_trace_filter: StackTraceFilter,
     pub json_pretty: bool,
 }
 
@@ -50,6 +99,20 @@ pub enum PrettyIndent {
     Tab,
 }
 
+/// Filter strategy for stack trace frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "json", serde(rename_all = "snake_case"))]
+pub enum StackTraceFilter {
+    /// Show all frames without filtering.
+    #[default]
+    All,
+    /// Filter out standard library and runtime frames.
+    AppOnly,
+    /// Filter out standard library, runtime, and internal frames.
+    AppFocused,
+}
+
 impl Default for ReportRenderOptions {
     fn default() -> Self {
         Self {
@@ -60,6 +123,7 @@ impl Default for ReportRenderOptions {
             show_empty_sections: true,
             show_governance_section: true,
             show_trace_section: true,
+            show_trace_event_details: true,
             show_stack_trace_section: true,
             show_context_section: true,
             show_attachments_section: true,
@@ -67,202 +131,188 @@ impl Default for ReportRenderOptions {
             stack_trace_max_lines: 24,
             stack_trace_include_raw: true,
             stack_trace_include_frames: true,
+            stack_trace_filter: StackTraceFilter::default(),
             json_pretty: false,
         }
     }
 }
 
+impl ReportRenderOptions {
+    /// Developer mode: show all detailed information including trace events and unfiltered stack traces.
+    pub fn developer() -> Self {
+        Self {
+            show_trace_event_details: true,
+            stack_trace_filter: StackTraceFilter::All,
+            stack_trace_max_lines: 50,
+            ..Self::default()
+        }
+    }
+
+    /// Production incident mode: filter noise while keeping essential debugging info.
+    pub fn production() -> Self {
+        Self {
+            show_trace_event_details: true,
+            stack_trace_filter: StackTraceFilter::AppOnly,
+            stack_trace_max_lines: 15,
+            ..Self::default()
+        }
+    }
+
+    /// Minimal mode: show only core information for quick scanning.
+    pub fn minimal() -> Self {
+        Self {
+            show_trace_event_details: false,
+            stack_trace_filter: StackTraceFilter::AppFocused,
+            stack_trace_max_lines: 5,
+            show_empty_sections: false,
+            show_type_name: false,
+            ..Self::default()
+        }
+    }
+}
+
 /// A trait for rendering a diagnostic report using a specific format.
-pub trait ReportRenderer<E> {
-    fn render(&self, report: &Report<E>, f: &mut Formatter<'_>) -> fmt::Result;
-}
-
-/// Error information in the Diagnostic Intermediate Representation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "json", derive(serde::Serialize))]
-pub struct DiagnosticIrError<'a> {
-    pub message: DiagnosticIrMessage<'a>,
-    pub r#type: Cow<'a, str>,
-}
-
-/// Lazily-resolved diagnostic message payload.
-#[derive(Clone)]
-pub enum DiagnosticIrMessage<'a> {
-    Borrowed(&'a str),
-    Owned(Cow<'a, str>),
-    Display(&'a (dyn Display + 'a)),
-}
-
-impl DiagnosticIrMessage<'_> {
-    /// Materializes the value as an owned `String`.
-    pub fn to_string_owned(&self) -> String {
-        match self {
-            Self::Borrowed(v) => (*v).to_owned(),
-            Self::Owned(v) => v.as_ref().to_owned(),
-            Self::Display(v) => v.to_string(),
-        }
-    }
-}
-
-impl Display for DiagnosticIrMessage<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Borrowed(v) => f.write_str(v),
-            Self::Owned(v) => f.write_str(v.as_ref()),
-            Self::Display(v) => write!(f, "{v}"),
-        }
-    }
-}
-
-impl core::fmt::Debug for DiagnosticIrMessage<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.to_string_owned())
-    }
-}
-
-impl PartialEq for DiagnosticIrMessage<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.to_string_owned() == other.to_string_owned()
-    }
-}
-
-impl Eq for DiagnosticIrMessage<'_> {}
-
-impl PartialEq<&str> for DiagnosticIrMessage<'_> {
-    fn eq(&self, other: &&str) -> bool {
-        match self {
-            Self::Borrowed(v) => v == other,
-            Self::Owned(v) => v.as_ref() == *other,
-            Self::Display(v) => v.to_string() == *other,
-        }
-    }
-}
-
-#[cfg(feature = "json")]
-impl serde::Serialize for DiagnosticIrMessage<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.to_string_owned())
-    }
-}
-
-/// Metadata information in the Diagnostic Intermediate Representation.
-pub struct DiagnosticIrMetadata<'a> {
-    pub error_code: Option<&'a ErrorCode>,
-    pub severity: Option<Severity>,
-    pub category: Option<&'a Cow<'static, str>>,
-    pub retryable: Option<bool>,
-    pub stack_trace: Option<&'a StackTrace>,
-}
-
-/// A platform-agnostic intermediate representation of a diagnostic report.
-pub struct DiagnosticIr<'a> {
-    #[cfg(feature = "json")]
-    pub schema_version: Cow<'static, str>,
-    pub error: DiagnosticIrError<'a>,
-    pub metadata: DiagnosticIrMetadata<'a>,
-    #[cfg(feature = "trace")]
-    pub trace: Option<&'a ReportTrace>,
-    pub context_count: usize,
-    pub attachment_count: usize,
+pub trait ReportRenderer<E, State>
+where
+    State: SeverityState,
+{
+    fn render(&self, report: &Report<E, State>, f: &mut Formatter<'_>) -> fmt::Result;
 }
 
 /// A renderer that produces a compact display of the report.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Compact;
+pub struct Compact {
+    pub profile: CompactProfile,
+}
 
-impl<E> Report<E> {
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "json", serde(rename_all = "snake_case"))]
+pub enum CompactProfile {
+    #[default]
+    Summary,
+    Full,
+}
+
+/// A report that has been paired with a renderer, implementing `Display`.
+pub struct RenderedReport<'a, E, State, R>
+where
+    State: SeverityState,
+{
+    report: &'a Report<E, State>,
+    renderer: R,
+}
+
+impl<E, State> Report<E, State>
+where
+    State: SeverityState,
+{
     /// Returns a renderer for compact output.
-    pub fn compact(&self) -> RenderedReport<'_, E, Compact> {
-        self.render(Compact)
+    pub fn compact(&self) -> RenderedReport<'_, E, State, Compact> {
+        Report::<E, State>::render(self, Compact::summary())
+    }
+
+    /// Returns a renderer for summary compact output.
+    pub fn compact_summary(&self) -> RenderedReport<'_, E, State, Compact> {
+        Report::<E, State>::render(self, Compact::summary())
+    }
+
+    /// Returns a renderer for full compact key-value output.
+    pub fn compact_full(&self) -> RenderedReport<'_, E, State, Compact> {
+        Report::<E, State>::render(self, Compact::full())
     }
 
     /// Returns a renderer for pretty-printed output.
-    pub fn pretty(&self) -> RenderedReport<'_, E, Pretty> {
-        self.render(Pretty::default())
+    pub fn pretty(&self) -> RenderedReport<'_, E, State, Pretty> {
+        Report::<E, State>::render(self, Pretty::default())
     }
 
     /// Returns a renderer for JSON output.
     #[cfg(feature = "json")]
-    pub fn json(&self) -> RenderedReport<'_, E, Json> {
-        self.render(Json::default())
+    pub fn json(&self) -> RenderedReport<'_, E, State, Json> {
+        Report::<E, State>::render(self, Json::default())
     }
 
     /// Returns a renderer for the given renderer implementation.
-    pub fn render<R>(&self, renderer: R) -> RenderedReport<'_, E, R> {
-        RenderedReport {
+    pub fn render<R>(&self, renderer: R) -> RenderedReport<'_, E, State, R> {
+        RenderedReport::<E, State, R> {
             report: self,
             renderer,
         }
     }
-}
 
-impl<E> Report<E>
-where
-    E: Error + Display + 'static,
-{
-    /// Converts the report to a platform-agnostic intermediate representation.
-    pub fn to_diagnostic_ir(&self, _options: ReportRenderOptions) -> DiagnosticIr<'_> {
-        let metadata = self.metadata();
-        let (context_count, attachment_count) = count_attachments(self);
+    /// Returns a snapshot-ready compact summary string.
+    pub fn snap_compact(&self) -> String
+    where
+        E: core::error::Error,
+    {
+        Report::<E, State>::render(self, Compact::summary()).to_string()
+    }
 
-        DiagnosticIr {
-            #[cfg(feature = "json")]
-            schema_version: Cow::Borrowed(REPORT_JSON_SCHEMA_VERSION),
-            error: DiagnosticIrError {
-                message: DiagnosticIrMessage::Display(self.inner()),
-                r#type: Cow::Borrowed(any::type_name::<E>()),
-            },
-            metadata: DiagnosticIrMetadata {
-                error_code: metadata.error_code.as_ref(),
-                severity: metadata.severity,
-                category: metadata.category.as_ref(),
-                retryable: metadata.retryable,
-                stack_trace: self.stack_trace(),
-            },
-            #[cfg(feature = "trace")]
-            trace: self.trace(),
-            context_count,
-            attachment_count,
-        }
+    /// Returns a snapshot-ready pretty-printed string.
+    pub fn snap_pretty(&self) -> String
+    where
+        E: core::error::Error,
+    {
+        Report::<E, State>::render(self, Pretty::default()).to_string()
+    }
+
+    /// Returns a snapshot-ready JSON string.
+    #[cfg(feature = "json")]
+    pub fn snap_json(&self) -> String
+    where
+        E: core::error::Error,
+    {
+        Report::<E, State>::render(self, Json::default()).to_string()
     }
 }
 
-fn count_attachments(report: &Report<impl Error + 'static>) -> (usize, usize) {
-    let mut context = 0usize;
-    let mut attachments = 0usize;
-    match report.visit_attachments(|item| {
-        match item {
-            AttachmentVisit::Context { .. } => context += 1,
-            AttachmentVisit::Note { .. } | AttachmentVisit::Payload { .. } => attachments += 1,
-        }
-        Ok(())
-    }) {
-        Ok(()) => (context, attachments),
-        Err(_) => (0, 0),
+impl<E> Report<E, HasSeverity> {
+    /// Returns a snapshot-ready OTel envelope JSON string.
+    /// Requires the report to carry an explicit severity.
+    #[cfg(all(feature = "json", feature = "otel"))]
+    pub fn snap_otel(&self) -> String
+    where
+        E: core::error::Error,
+    {
+        let ir = self.to_diagnostic_ir();
+        let mut otel = ir.to_otel_envelope_default();
+        otel_snapshot::normalize_otel_envelope(&mut otel);
+        serde_json::to_string(&otel).unwrap_or_default()
     }
 }
 
-/// A report that has been paired with a renderer, implementing `Display`.
-pub struct RenderedReport<'a, E, R> {
-    report: &'a Report<E>,
-    renderer: R,
-}
-
-impl<E> ReportRenderer<E> for Compact
+impl<E, State> ReportRenderer<E, State> for Compact
 where
     E: Display,
+    State: SeverityState,
 {
-    fn render(&self, report: &Report<E>, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{report}")
+    fn render(&self, report: &Report<E, State>, f: &mut Formatter<'_>) -> fmt::Result {
+        match self.profile {
+            CompactProfile::Summary => write!(f, "{}", Report::<E, State>::inner(report)),
+            CompactProfile::Full => write!(f, "{report}"),
+        }
     }
 }
 
-impl<E, R> Display for RenderedReport<'_, E, R>
+impl Compact {
+    pub const fn summary() -> Self {
+        Self {
+            profile: CompactProfile::Summary,
+        }
+    }
+
+    pub const fn full() -> Self {
+        Self {
+            profile: CompactProfile::Full,
+        }
+    }
+}
+
+impl<E, State, R> Display for RenderedReport<'_, E, State, R>
 where
-    R: ReportRenderer<E>,
+    State: SeverityState,
+    R: ReportRenderer<E, State>,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.renderer.render(self.report, f)

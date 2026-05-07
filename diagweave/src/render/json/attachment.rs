@@ -1,46 +1,175 @@
 use super::{
     close_array, close_object, write_array_item_prefix, write_json_display, write_json_string,
-    write_object_field, write_option_string,
+    write_object_field,
 };
-use crate::report::{AttachmentValue, AttachmentVisit, Report};
+use crate::report::{
+    AttachmentValue, AttachmentVisit, ContextValue, JsonContext, JsonContextEntry, Report,
+    SeverityState,
+};
+use alloc::vec::Vec;
 use core::error::Error;
 use core::fmt::{self, Display, Formatter, Write};
 
-pub(super) fn write_context_array<E>(
+pub(super) fn write_context_object<E, State>(
     f: &mut Formatter<'_>,
     pretty: bool,
     depth: usize,
-    report: &Report<E>,
+    report: &Report<E, State>,
 ) -> fmt::Result
 where
-    E: Error + Display + 'static,
+    E: Error,
+    State: SeverityState,
 {
     let mut first = true;
-    f.write_char('[')?;
-    report.visit_attachments(|item| {
-        let AttachmentVisit::Context { key, value } = item else {
-            return Ok(());
-        };
-        write_array_item_prefix(f, pretty, depth, &mut first)?;
-        write_kv_obj(f, pretty, depth + 1, key.as_ref(), value)
-    })?;
-    close_array(f, pretty, depth, first)
+    f.write_char('{')?;
+    let context = build_json_context(report.context());
+    for entry in context.entries {
+        write_object_field(f, pretty, depth, &mut first, entry.key.as_ref(), |f| {
+            write_context_value(f, pretty, depth + 1, &entry.value)
+        })?;
+    }
+    close_object(f, pretty, depth, first)
 }
 
-pub(super) fn write_attachments_array<E>(
+pub(super) fn write_system_object<E, State>(
     f: &mut Formatter<'_>,
     pretty: bool,
     depth: usize,
-    report: &Report<E>,
+    report: &Report<E, State>,
 ) -> fmt::Result
 where
-    E: Error + Display + 'static,
+    E: Error,
+    State: SeverityState,
+{
+    let mut first = true;
+    f.write_char('{')?;
+    let system = build_json_system(report.system());
+    for entry in &system.entries {
+        write_object_field(f, pretty, depth, &mut first, entry.key.as_ref(), |f| {
+            write_context_value(f, pretty, depth + 1, &entry.value)
+        })?;
+    }
+    close_object(f, pretty, depth, first)
+}
+
+pub(super) fn write_context_value(
+    f: &mut Formatter<'_>,
+    pretty: bool,
+    depth: usize,
+    value: &ContextValue,
+) -> fmt::Result {
+    match value {
+        ContextValue::String(v) => write_kind_and_value(f, pretty, depth, "string", |f| {
+            write_json_string(f, v.as_ref())
+        }),
+        ContextValue::Integer(v) => {
+            write_kind_and_value(f, pretty, depth, "integer", |f| write!(f, "{v}"))
+        }
+        ContextValue::Unsigned(v) => {
+            write_kind_and_value(f, pretty, depth, "unsigned", |f| write!(f, "{v}"))
+        }
+        ContextValue::Float(v) => {
+            if !v.is_finite() {
+                Err(fmt::Error)
+            } else {
+                write_kind_and_value(f, pretty, depth, "float", |f| write!(f, "{v}"))
+            }
+        }
+        ContextValue::Bool(v) => {
+            write_kind_and_value(f, pretty, depth, "bool", |f| write!(f, "{v}"))
+        }
+        ContextValue::StringArray(values) => {
+            write_context_array(f, pretty, depth, "string_array", values, |f, value| {
+                write_json_string(f, value.as_ref())
+            })
+        }
+        ContextValue::IntegerArray(values) => {
+            write_context_array(f, pretty, depth, "integer_array", values, |f, value| {
+                write!(f, "{value}")
+            })
+        }
+        ContextValue::UnsignedArray(values) => {
+            write_context_array(f, pretty, depth, "unsigned_array", values, |f, value| {
+                write!(f, "{value}")
+            })
+        }
+        ContextValue::FloatArray(values) => {
+            if values.iter().any(|value| !value.is_finite()) {
+                return Err(fmt::Error);
+            }
+            write_context_array(f, pretty, depth, "float_array", values, |f, value| {
+                write!(f, "{value}")
+            })
+        }
+        ContextValue::BoolArray(values) => {
+            write_context_array(f, pretty, depth, "bool_array", values, |f, value| {
+                write!(f, "{value}")
+            })
+        }
+        ContextValue::Redacted { kind, reason } => {
+            write_redacted_obj(f, pretty, depth, kind.as_deref(), reason.as_deref())
+        }
+    }
+}
+
+fn write_context_array<T, F>(
+    f: &mut Formatter<'_>,
+    pretty: bool,
+    depth: usize,
+    kind: &str,
+    values: &[T],
+    mut write_value: F,
+) -> fmt::Result
+where
+    F: FnMut(&mut Formatter<'_>, &T) -> fmt::Result,
+{
+    write_kind_and_value(f, pretty, depth, kind, |f| {
+        let mut first = true;
+        f.write_char('[')?;
+        for value in values {
+            write_array_item_prefix(f, pretty, depth + 1, &mut first)?;
+            write_value(f, value)?;
+        }
+        close_array(f, pretty, depth + 1, first)
+    })
+}
+
+fn build_json_context(context: &crate::report::ContextMap) -> JsonContext {
+    let entries: Vec<JsonContextEntry> = context
+        .sorted_entries()
+        .into_iter()
+        .map(|(key, value)| JsonContextEntry {
+            key: key.clone(),
+            value: value.clone(),
+        })
+        .collect();
+    JsonContext { entries }
+}
+
+struct JsonSystem {
+    entries: Vec<JsonContextEntry>,
+}
+
+fn build_json_system(system: &crate::report::ContextMap) -> JsonSystem {
+    JsonSystem {
+        entries: build_json_context(system).entries,
+    }
+}
+
+pub(super) fn write_attachments_array<E, State>(
+    f: &mut Formatter<'_>,
+    pretty: bool,
+    depth: usize,
+    report: &Report<E, State>,
+) -> fmt::Result
+where
+    E: Error,
+    State: SeverityState,
 {
     let mut first = true;
     f.write_char('[')?;
     report.visit_attachments(|item| {
         match item {
-            AttachmentVisit::Context { .. } => {}
             AttachmentVisit::Note { message } => {
                 write_array_item_prefix(f, pretty, depth, &mut first)?;
                 write_note_obj(f, pretty, depth + 1, message)?;
@@ -51,14 +180,14 @@ where
                 media_type,
             } => {
                 write_array_item_prefix(f, pretty, depth, &mut first)?;
-                write_payload_obj(
+                write_payload_obj(PayloadArgs {
                     f,
                     pretty,
-                    depth + 1,
-                    name.as_ref(),
+                    depth: depth + 1,
+                    name: name.as_ref(),
                     value,
-                    media_type.map(|m| m.as_ref()),
-                )?;
+                    media_type: media_type.map(|m| m.as_ref()),
+                })?;
             }
         }
         Ok(())
@@ -83,14 +212,24 @@ fn write_note_obj(
     close_object(f, pretty, depth, first)
 }
 
-fn write_payload_obj(
-    f: &mut Formatter<'_>,
+struct PayloadArgs<'a, 'b> {
+    f: &'a mut Formatter<'b>,
     pretty: bool,
     depth: usize,
-    name: &str,
-    value: &AttachmentValue,
-    media_type: Option<&str>,
-) -> fmt::Result {
+    name: &'a str,
+    value: &'a AttachmentValue,
+    media_type: Option<&'a str>,
+}
+
+fn write_payload_obj(args: PayloadArgs<'_, '_>) -> fmt::Result {
+    let PayloadArgs {
+        f,
+        pretty,
+        depth,
+        name,
+        value,
+        media_type,
+    } = args;
     let mut first = true;
     f.write_char('{')?;
     write_object_field(f, pretty, depth, &mut first, "kind", |f| {
@@ -116,24 +255,6 @@ fn write_payload_obj(
     close_object(f, pretty, depth, first)
 }
 
-fn write_kv_obj(
-    f: &mut Formatter<'_>,
-    pretty: bool,
-    depth: usize,
-    key: &str,
-    value: &AttachmentValue,
-) -> fmt::Result {
-    let mut first = true;
-    f.write_char('{')?;
-    write_object_field(f, pretty, depth, &mut first, "key", |f| {
-        write_json_string(f, key)
-    })?;
-    write_object_field(f, pretty, depth, &mut first, "value", |f| {
-        write_attachment_value(f, pretty, depth + 1, value)
-    })?;
-    close_object(f, pretty, depth, first)
-}
-
 pub(super) fn write_attachment_value(
     f: &mut Formatter<'_>,
     pretty: bool,
@@ -145,8 +266,7 @@ pub(super) fn write_attachment_value(
     }
 
     match value {
-        AttachmentValue::Null
-        | AttachmentValue::String(_)
+        AttachmentValue::String(_)
         | AttachmentValue::Integer(_)
         | AttachmentValue::Unsigned(_)
         | AttachmentValue::Float(_)
@@ -163,7 +283,7 @@ pub(super) fn write_attachment_value(
         AttachmentValue::Object(values) => write_kind_and_value(f, pretty, depth, "object", |f| {
             let mut first = true;
             f.write_char('{')?;
-            for (key, item) in values {
+            for (key, item) in values.sorted_entries() {
                 write_object_field(f, pretty, depth + 1, &mut first, key, |f| {
                     write_attachment_value(f, pretty, depth + 2, item)
                 })?;
@@ -200,12 +320,16 @@ fn write_redacted_obj(
     write_object_field(f, pretty, depth, &mut first, "value", |f| {
         let mut inner_first = true;
         f.write_char('{')?;
-        write_object_field(f, pretty, depth + 1, &mut inner_first, "kind", |f| {
-            write_option_string(f, kind)
-        })?;
-        write_object_field(f, pretty, depth + 1, &mut inner_first, "reason", |f| {
-            write_option_string(f, reason)
-        })?;
+        if let Some(kind) = kind {
+            write_object_field(f, pretty, depth + 1, &mut inner_first, "kind", |f| {
+                write_json_string(f, kind)
+            })?;
+        }
+        if let Some(reason) = reason {
+            write_object_field(f, pretty, depth + 1, &mut inner_first, "reason", |f| {
+                write_json_string(f, reason)
+            })?;
+        }
         close_object(f, pretty, depth + 1, inner_first)
     })?;
     close_object(f, pretty, depth, first)
@@ -218,7 +342,6 @@ fn write_scalar_value(
     value: &AttachmentValue,
 ) -> Option<fmt::Result> {
     match value {
-        AttachmentValue::Null => Some(write_kind_only(f, pretty, depth, "null")),
         AttachmentValue::String(v) => Some(write_kind_and_value(f, pretty, depth, "string", |f| {
             write_json_string(f, v.as_ref())
         })),
@@ -246,15 +369,6 @@ fn write_scalar_value(
         })),
         _ => None,
     }
-}
-
-fn write_kind_only(f: &mut Formatter<'_>, pretty: bool, depth: usize, kind: &str) -> fmt::Result {
-    let mut first = true;
-    f.write_char('{')?;
-    write_object_field(f, pretty, depth, &mut first, "kind", |f| {
-        write_json_string(f, kind)
-    })?;
-    close_object(f, pretty, depth, first)
 }
 
 fn write_kind_and_value<F>(

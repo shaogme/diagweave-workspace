@@ -1,8 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
-#[path = "adapters.rs"]
-mod adapters_impl;
+#[cfg(feature = "otel")]
+#[path = "otel.rs"]
+mod otel_impl;
 #[path = "render.rs"]
 mod render_impl;
 #[path = "report.rs"]
@@ -10,8 +11,10 @@ mod report_impl;
 #[cfg(feature = "trace")]
 #[path = "trace.rs"]
 mod trace_impl;
+mod utils;
 
 pub use diagweave_macros::{Error, set, union};
+pub use ref_str::{RefStr, StaticRefStr};
 
 #[cfg(doctest)]
 #[doc = include_str!("../../README.md")]
@@ -29,14 +32,18 @@ pub struct AiDoctests;
 #[doc = include_str!("../../docs/ai/ai_docs_cn.md")]
 pub struct AiCnDoctests;
 
-pub mod adapters {
-    pub use crate::adapters_impl::*;
+#[cfg(any(feature = "otel", feature = "opentelemetry"))]
+pub mod otel {
+    #[cfg(feature = "opentelemetry")]
+    pub use crate::otel_impl::opentelemetry;
+    pub use crate::otel_impl::*;
 }
 
 pub mod render {
     pub use crate::render_impl::{
-        Compact, DiagnosticIr, DiagnosticIrError, DiagnosticIrMessage, DiagnosticIrMetadata,
-        Pretty, PrettyIndent, RenderedReport, ReportRenderOptions, ReportRenderer,
+        Compact, CompactProfile, DiagnosticIr, DiagnosticIrError, DiagnosticIrMessage,
+        DiagnosticIrMetadata, Pretty, PrettyIndent, RenderedReport, ReportRenderOptions,
+        ReportRenderer, StackTraceFilter,
     };
     #[cfg(feature = "json")]
     pub use crate::render_impl::{
@@ -47,17 +54,24 @@ pub mod render {
 pub mod report {
     pub use crate::report_impl::{
         Attachment, AttachmentValue, AttachmentVisit, CauseCollectOptions, CauseKind,
-        CauseTraversalState, Diagnostic, DisplayCauseChain, ErrorCode, ErrorCodeIntError,
-        GlobalContext, Report, ReportMetadata, ReportResultExt, ReportResultInspectExt,
-        ReportSourceErrorIter, Severity, SourceErrorChain, StackFrame, StackTrace,
-        StackTraceFormat,
+        CauseTraversalState, ContextMap, ContextValue, Diagnostic, DisplayCauseChain, ErrorCode,
+        ErrorCodeIntError, GlobalContext, GlobalErrorMeta, HasSeverity, InspectReportExt,
+        MissingSeverity, Report, ReportMetadata, ReportOptions, ReportSourceErrorIter,
+        ResultReportExt, Severity, SeverityParseError, SeverityState, SourceErrorChain,
+        SourceErrorEntry, SourceErrorItem, StackFrame, StackTrace, StackTraceFormat,
     };
     #[cfg(feature = "std")]
-    pub use crate::report_impl::{RegisterGlobalContextError, register_global_injector};
+    pub use crate::report_impl::{
+        GlobalConfig, RegisterGlobalContextError, SetGlobalConfigError, register_global_injector,
+        set_global_config,
+    };
+    #[cfg(feature = "json")]
+    pub use crate::report_impl::{JsonContext, JsonContextEntry};
     #[cfg(feature = "trace")]
     pub use crate::report_impl::{
         ReportTrace, TraceContext, TraceEvent, TraceEventAttribute, TraceEventLevel,
     };
+    pub use crate::utils::{HexId, ParentSpanId, SpanId, TraceId, TraceState};
 }
 
 #[cfg(feature = "trace")]
@@ -65,16 +79,24 @@ pub mod trace {
     #[cfg(feature = "tracing")]
     pub use crate::trace_impl::TracingExporter;
     pub use crate::trace_impl::TracingExporterTrait;
+    pub use crate::trace_impl::{
+        EmitStats, PreparedTraceEvent, PreparedTracingEmission, PreparedTracingLevel, TracingField,
+    };
 }
 
 pub mod prelude {
-    pub use crate::render::{Compact, Pretty, ReportRenderOptions, ReportRenderer};
+    pub use crate::render::{
+        Compact, CompactProfile, Pretty, ReportRenderOptions, ReportRenderer, StackTraceFilter,
+    };
     pub use crate::report::{
-        AttachmentValue, Diagnostic, Report, ReportResultExt, ReportResultInspectExt, Severity,
+        AttachmentValue, ContextMap, ContextValue, Diagnostic, HasSeverity, InspectReportExt,
+        MissingSeverity, Report, ResultReportExt, Severity, SeverityState, SourceErrorItem,
     };
     #[cfg(feature = "std")]
     pub use crate::report::{GlobalContext, register_global_injector};
+    #[cfg(any(feature = "trace", feature = "otel"))]
+    pub use crate::report::{ParentSpanId, SpanId, TraceId, TraceState};
     #[cfg(feature = "trace")]
     pub use crate::report::{TraceEvent, TraceEventAttribute, TraceEventLevel};
-    pub use crate::{Error, set, union};
+    pub use crate::{Error, RefStr, StaticRefStr, set, union};
 }

@@ -1,5 +1,3 @@
-#![allow(dead_code, unused_imports)]
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 #[cfg(feature = "std")]
@@ -8,25 +6,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use diagweave::prelude::*;
-#[cfg(feature = "trace")]
-pub use diagweave::prelude::{TraceEvent, TraceEventAttribute, TraceEventLevel};
-#[cfg(feature = "tracing")]
-pub use diagweave::render::DiagnosticIr;
-pub use diagweave::render::PrettyIndent;
-#[cfg(feature = "json")]
-pub use diagweave::render::{Json, REPORT_JSON_SCHEMA_VERSION, report_json_schema};
 #[cfg(feature = "std")]
-pub use diagweave::report::GlobalContext;
+use diagweave::report::GlobalContext;
+#[cfg(all(feature = "std", feature = "trace"))]
+use diagweave::report::TraceContext;
 #[cfg(feature = "std")]
-pub use diagweave::report::register_global_injector;
-pub use diagweave::report::{
-    Attachment, AttachmentValue, ReportMetadata, StackTrace, StackTraceFormat,
-};
-#[cfg(feature = "tracing")]
-pub use diagweave::trace::TracingExporterTrait;
+use diagweave::report::register_global_injector;
 
 /// An error type for authentication failures.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum AuthError {
     InvalidToken,
 }
@@ -43,6 +32,7 @@ impl Error for AuthError {}
 
 /// An error type for API failures.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum ApiError {
     Unauthorized,
     Wrapped { code: u16 },
@@ -71,7 +61,6 @@ impl Display for LoopError {
 
 impl Error for LoopError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        #[allow(unconditional_recursion)]
         Some(self)
     }
 }
@@ -80,14 +69,21 @@ impl Error for LoopError {
 #[derive(Clone, Copy)]
 pub struct TinyRenderer;
 
-impl<E> ReportRenderer<E> for TinyRenderer
+impl<E, State> ReportRenderer<E, State> for TinyRenderer
 where
     E: Display,
+    State: SeverityState,
 {
-    fn render(&self, report: &Report<E>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn render(&self, report: &Report<E, State>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "tiny: {}", report.inner())
     }
 }
+
+const _: fn() = || {
+    let _ = LoopError;
+    let _ = TinyRenderer;
+    let _ = ApiError::Wrapped { code: 0 };
+};
 
 #[cfg(feature = "std")]
 pub static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -95,6 +91,14 @@ pub static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 pub static INJECT_ENABLED: AtomicBool = AtomicBool::new(false);
 #[cfg(feature = "std")]
 pub static INJECTOR_INSTALLED: OnceLock<()> = OnceLock::new();
+
+#[cfg(feature = "std")]
+const _: fn() = || {
+    let _ = INJECT_ENABLED.load(Ordering::Relaxed);
+    let _ = INJECTOR_INSTALLED.get();
+    let _f: fn() = ensure_global_injector_installed;
+    let _ = _f;
+};
 
 /// Ensures that the global injector is installed for tests.
 #[cfg(feature = "std")]
@@ -107,11 +111,16 @@ pub fn ensure_global_injector_installed() {
             let mut context = GlobalContext::default();
             context
                 .context
-                .push(("request_id".into(), AttachmentValue::from("req-42")));
+                .insert("request_id", ContextValue::from("req-42"));
             #[cfg(feature = "trace")]
             {
-                context.trace_id = Some("trace-42".into());
-                context.span_id = Some("span-42".into());
+                let trace_id = TraceId::from_str("4bf92f3577b34da6a3ce929d0e0e4736").ok();
+                let span_id = SpanId::from_str("00f067aa0ba902b7").ok();
+                context.trace = Some(TraceContext {
+                    trace_id,
+                    span_id,
+                    ..TraceContext::default()
+                });
             }
             Some(context)
         });
@@ -122,13 +131,12 @@ pub fn ensure_global_injector_installed() {
 /// Returns a guard that should be held for the duration of the test to ensure isolation.
 #[must_use]
 #[cfg(feature = "std")]
+#[allow(dead_code)]
 pub fn init_test() -> Option<MutexGuard<'static, ()>> {
-    Some(
-        TEST_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("test lock"),
-    )
+    Some(match TEST_LOCK.get_or_init(|| Mutex::new(())).lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    })
 }
 
 /// Initializes the test environment. (no-std version)
@@ -136,4 +144,13 @@ pub fn init_test() -> Option<MutexGuard<'static, ()>> {
 #[cfg(not(feature = "std"))]
 pub fn init_test() -> Option<()> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn ensure_init_test_used() {
+        let _ = init_test();
+    }
 }

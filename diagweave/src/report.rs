@@ -1,605 +1,281 @@
+//! Report module - core diagnostic report types and operations.
+//!
+//! This module provides the main [`Report`] type which wraps errors with rich
+//! metadata and context. The module is organized into several submodules:
+//!
+//! - [`builder`] - Builder-style methods for constructing reports
+//! - [`accessors`] - Accessor and visitor methods for reading report data
+//! - [`global`] - Global context injection utilities
+//! - [`transform`] - Error transformation methods like `map_err`
+//! - [`types`] - Core type definitions
+//! - [`ext`] - Extension traits for working with reports
+//! - [`impls`] - Core trait implementations
+//!
+//! # Example
+//!
+//! ```rust
+//! use diagweave::prelude::{Report, Severity};
+//! use diagweave::Error;
+//!
+//! #[derive(Debug, Error)]
+//! #[display("database connection failed")]
+//! struct DatabaseError;
+//!
+//! let report = Report::new(DatabaseError)
+//!     .set_severity(Severity::Error)
+//!     .set_error_code("DB-001")
+//!     .attach_note("Failed to connect to production database")
+//!     .with_ctx("host", "db.example.com")
+//!     .with_ctx("port", "5432");
+//! ```
+//!
+//! # Boxed Data
+//!
+//! `Report` encapsulates its metadata and diagnostics in a boxed `ReportData`
+//! structure. This keeps the primary `Report` struct small (only two pointers)
+//! and improves performance when reports are moved or passed around.
+
+#[path = "report/accessors.rs"]
+mod accessors;
+#[path = "report/builder.rs"]
+mod builder;
 #[path = "report/ext.rs"]
 mod ext;
+#[path = "report/global.rs"]
+mod global;
 #[path = "report/impls.rs"]
 mod impls;
+#[cfg(feature = "trace")]
+#[path = "report/trace.rs"]
+mod trace;
+#[path = "report/transform.rs"]
+mod transform;
 #[path = "report/types.rs"]
 mod types;
 
-use alloc::borrow::Cow;
 use alloc::boxed::Box;
-use alloc::vec::Vec;
 use core::error::Error;
-use core::fmt::{self, Display};
-#[cfg(feature = "std")]
-use std::panic::{AssertUnwindSafe, catch_unwind};
-#[cfg(feature = "std")]
-use std::sync::OnceLock;
 
-pub use ext::{Diagnostic, ReportResultExt, ReportResultInspectExt};
+pub use ext::{Diagnostic, InspectReportExt, ResultReportExt};
 pub use types::{
-    Attachment, AttachmentValue, CauseCollectOptions, CauseKind, DisplayCauseChain, ErrorCode,
-    ErrorCodeIntError, ReportMetadata, Severity, SourceErrorChain, StackFrame, StackTrace,
-    StackTraceFormat,
+    Attachment, AttachmentValue, CauseCollectOptions, CauseKind, ContextMap, ContextValue,
+    DiagnosticBag, DisplayCauseChain, ErrorCode, ErrorCodeIntError, GlobalErrorMeta, HasSeverity,
+    MissingSeverity, ReportMetadata, ReportOptions, Severity, SeverityParseError, SeverityState,
+    SourceErrorChain, SourceErrorEntry, SourceErrorItem, StackFrame, StackTrace, StackTraceFormat,
 };
 pub use types::{AttachmentVisit, CauseTraversalState, GlobalContext, ReportSourceErrorIter};
+#[cfg(feature = "json")]
+pub use types::{JsonContext, JsonContextEntry};
 
+#[cfg(feature = "std")]
+pub use global::RegisterGlobalContextError;
+#[cfg(feature = "std")]
+pub use global::register_global_injector;
 #[cfg(feature = "trace")]
-pub use types::{ReportTrace, TraceContext, TraceEvent, TraceEventAttribute, TraceEventLevel};
+pub use trace::{ReportTrace, TraceContext, TraceEvent, TraceEventAttribute, TraceEventLevel};
+#[cfg(feature = "std")]
+pub use types::{GlobalConfig, SetGlobalConfigError, set_global_config};
 
-use types::{ColdData, DiagnosticBag, EMPTY_REPORT_METADATA, SeenErrorAddrs, SourceErrorIterStage};
+pub(crate) use types::{append_source_chain, limit_depth_source_chain};
 
 /// A high-level diagnostic report that wraps an error with rich metadata and context.
-pub struct Report<E> {
+///
+/// `Report` provides a comprehensive wrapper around error types, adding:
+/// - **Attachments**: Notes and payloads for additional context
+/// - **Context**: Key-value pairs for business and system context
+/// - **Metadata**: Error code, category, and retryable flag
+/// - **Severity**: Error severity level (via typestate pattern)
+/// - **Stack traces**: Captured call stack information
+/// - **Display causes**: Human-readable cause chain
+/// - **Source errors**: Technical error chain for debugging
+///
+/// # Typestate Pattern
+///
+/// `Report` uses a typestate pattern for severity:
+/// - `Report<E, MissingSeverity>` - Severity not yet set
+/// - `Report<E, HasSeverity>` - Severity has been set
+///
+/// This ensures type safety when severity is required for certain operations.
+///
+/// # Example
+///
+/// ```rust
+/// use diagweave::prelude::{Report, Severity};
+/// use diagweave::Error;
+///
+/// #[derive(Debug, Error)]
+/// #[display("my error")]
+/// struct MyError;
+///
+/// // Create a report without severity
+/// let report: Report<MyError, _> = Report::new(MyError);
+///
+/// // Set severity to get HasSeverity typestate
+/// let report = report.set_severity(Severity::Error);
+/// ```
+pub struct Report<E, State: SeverityState = MissingSeverity> {
     inner: E,
-    cold: Option<Box<ColdData>>,
+    data: Box<ReportData<State>>,
 }
 
-impl<E> Report<E> {
-    /// Creates a new report.
-    pub fn new(inner: E) -> Self {
-        #[cfg(feature = "std")]
-        let mut report = Self { inner, cold: None };
-        #[cfg(not(feature = "std"))]
-        let report = Self { inner, cold: None };
-        #[cfg(feature = "std")]
-        report.apply_global_context();
-        report
-    }
-
-    /// Returns a reference to the inner error.
-    pub fn inner(&self) -> &E {
-        &self.inner
-    }
-
-    /// Consumes the report and returns the inner error.
-    pub fn into_inner(self) -> E {
-        self.inner
-    }
-
-    /// Returns the attachments associated with the report.
-    pub fn attachments(&self) -> &[Attachment] {
-        match self.diagnostics() {
-            Some(diag) => &diag.attachments,
-            None => &[],
-        }
-    }
-
-    /// Visits attachments in insertion order without building intermediate allocations.
-    pub fn visit_attachments<F>(&self, mut visit: F) -> Result<(), fmt::Error>
-    where
-        F: FnMut(AttachmentVisit<'_>) -> fmt::Result,
-    {
-        let Some(diag) = self.diagnostics() else {
-            return Ok(());
-        };
-        for attachment in &diag.attachments {
-            match attachment {
-                Attachment::Context { key, value } => {
-                    visit(AttachmentVisit::Context { key, value })?;
-                }
-                Attachment::Note { message } => {
-                    visit(AttachmentVisit::Note {
-                        message: message.as_ref(),
-                    })?;
-                }
-                Attachment::Payload {
-                    name,
-                    value,
-                    media_type,
-                } => {
-                    visit(AttachmentVisit::Payload {
-                        name,
-                        value,
-                        media_type: media_type.as_ref(),
-                    })?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Returns the display causes associated with the report.
-    pub fn display_causes(&self) -> &[Box<dyn Display + 'static>] {
-        match self.diagnostics() {
-            Some(diag) => diag
-                .display_causes
-                .as_ref()
-                .map(|v| v.items.as_slice())
-                .unwrap_or(&[]),
-            None => &[],
-        }
-    }
-
-    /// Returns the source errors associated with the report.
-    pub fn source_errors(&self) -> &[Box<dyn Error + 'static>] {
-        match self.diagnostics() {
-            Some(diag) => diag
-                .source_errors
-                .as_ref()
-                .map(|v| v.items.as_slice())
-                .unwrap_or(&[]),
-            None => &[],
-        }
-    }
-
-    /// Returns the metadata associated with the report.
-    pub fn metadata(&self) -> &ReportMetadata {
-        self.cold
-            .as_ref()
-            .map(|cold| &cold.metadata)
-            .unwrap_or(&EMPTY_REPORT_METADATA)
-    }
-
-    /// Returns the error code from report metadata, if present.
-    pub fn error_code(&self) -> Option<&ErrorCode> {
-        self.metadata().error_code.as_ref()
-    }
-
-    /// Returns the severity from report metadata, if present.
-    pub fn severity(&self) -> Option<Severity> {
-        self.metadata().severity
-    }
-
-    /// Returns the category from report metadata, if present.
-    pub fn category(&self) -> Option<&str> {
-        self.metadata().category.as_deref()
-    }
-
-    /// Returns whether the report is marked retryable, if present.
-    pub fn retryable(&self) -> Option<bool> {
-        self.metadata().retryable
-    }
-
-    /// Returns the stack trace associated with the report, if any.
-    pub fn stack_trace(&self) -> Option<&StackTrace> {
-        self.diagnostics()
-            .and_then(|diag| diag.stack_trace.as_ref())
-    }
-
-    /// Returns the trace information associated with the report, if any.
+struct ReportData<State: SeverityState> {
+    metadata: ReportMetadata<State>,
+    options: ReportOptions,
     #[cfg(feature = "trace")]
-    pub fn trace(&self) -> Option<&ReportTrace> {
-        self.diagnostics().map(|diag| &diag.trace)
-    }
-
-    fn diagnostics(&self) -> Option<&DiagnosticBag> {
-        self.cold.as_ref().map(|cold| &cold.diagnostics)
-    }
-
-    fn ensure_cold(&mut self) -> &mut ColdData {
-        self.cold
-            .get_or_insert_with(|| Box::new(ColdData::default()))
-            .as_mut()
-    }
-
-    fn diagnostics_mut(&mut self) -> &mut DiagnosticBag {
-        &mut self.ensure_cold().diagnostics
-    }
-
-    #[cfg(feature = "std")]
-    fn apply_global_context(&mut self) {
-        let diag = self.diagnostics_mut();
-        #[cfg(feature = "trace")]
-        apply_global_context(&mut diag.attachments, &mut diag.trace.context);
-        #[cfg(not(feature = "trace"))]
-        apply_global_context(&mut diag.attachments);
-    }
-
-    /// Attaches a context key-value pair to the report.
-    pub fn attach(
-        mut self,
-        key: impl Into<Cow<'static, str>>,
-        value: impl Into<AttachmentValue>,
-    ) -> Self {
-        self.diagnostics_mut()
-            .attachments
-            .push(Attachment::context(key, value));
-        self
-    }
-
-    /// Attaches a printable note to the report.
-    pub fn attach_printable(mut self, message: impl Display + 'static) -> Self {
-        self.diagnostics_mut()
-            .attachments
-            .push(Attachment::note(message));
-        self
-    }
-
-    /// Attaches a payload with an optional media type to the report.
-    pub fn attach_payload(
-        mut self,
-        name: impl Into<Cow<'static, str>>,
-        value: impl Into<AttachmentValue>,
-        media_type: Option<impl Into<Cow<'static, str>>>,
-    ) -> Self {
-        self.diagnostics_mut().attachments.push(Attachment::payload(
-            name,
-            value,
-            media_type.map(|m| m.into()),
-        ));
-        self
-    }
-
-    /// Adds context to the report (alias for `attach`).
-    pub fn with_context(
-        self,
-        key: impl Into<Cow<'static, str>>,
-        value: impl Into<AttachmentValue>,
-    ) -> Self {
-        self.attach(key, value)
-    }
-
-    /// Adds a note to the report (alias for `attach_printable`).
-    pub fn with_note(self, message: impl Display + 'static) -> Self {
-        self.attach_printable(message)
-    }
-
-    /// Adds a payload to the report (alias for `attach_payload`).
-    pub fn with_payload(
-        self,
-        name: impl Into<Cow<'static, str>>,
-        value: impl Into<AttachmentValue>,
-        media_type: Option<impl Into<Cow<'static, str>>>,
-    ) -> Self {
-        self.attach_payload(name, value, media_type)
-    }
-
-    /// Sets the metadata for the report.
-    pub fn with_metadata(mut self, metadata: ReportMetadata) -> Self {
-        self.ensure_cold().metadata = metadata;
-        self
-    }
-
-    /// Sets the trace information for the report.
-    #[cfg(feature = "trace")]
-    pub fn with_trace(mut self, trace: ReportTrace) -> Self {
-        self.diagnostics_mut().trace = trace;
-        self
-    }
-
-    /// Sets the trace and span IDs for the report.
-    #[cfg(feature = "trace")]
-    pub fn with_trace_ids(
-        mut self,
-        trace_id: impl Into<Cow<'static, str>>,
-        span_id: impl Into<Cow<'static, str>>,
-    ) -> Self {
-        let trace = &mut self.diagnostics_mut().trace;
-        trace.context.trace_id = Some(trace_id.into());
-        trace.context.span_id = Some(span_id.into());
-        self
-    }
-
-    /// Sets the parent span ID for the report.
-    #[cfg(feature = "trace")]
-    pub fn with_parent_span_id(mut self, parent_span_id: impl Into<Cow<'static, str>>) -> Self {
-        self.diagnostics_mut().trace.context.parent_span_id = Some(parent_span_id.into());
-        self
-    }
-
-    /// Sets whether the trace is sampled.
-    #[cfg(feature = "trace")]
-    pub fn with_trace_sampled(mut self, sampled: bool) -> Self {
-        self.diagnostics_mut().trace.context.sampled = Some(sampled);
-        self
-    }
-
-    /// Sets the trace state.
-    #[cfg(feature = "trace")]
-    pub fn with_trace_state(mut self, trace_state: impl Into<Cow<'static, str>>) -> Self {
-        self.diagnostics_mut().trace.context.trace_state = Some(trace_state.into());
-        self
-    }
-
-    /// Sets the trace flags.
-    #[cfg(feature = "trace")]
-    pub fn with_trace_flags(mut self, flags: u32) -> Self {
-        self.diagnostics_mut().trace.context.flags = Some(flags);
-        self
-    }
-
-    /// Adds a trace event to the report.
-    #[cfg(feature = "trace")]
-    pub fn with_trace_event(mut self, event: TraceEvent) -> Self {
-        self.diagnostics_mut().trace.events.push(event);
-        self
-    }
-
-    /// Pushes a trace event with the specified name.
-    #[cfg(feature = "trace")]
-    pub fn push_trace_event(mut self, name: impl Into<Cow<'static, str>>) -> Self {
-        self.diagnostics_mut().trace.events.push(TraceEvent {
-            name: name.into(),
-            ..TraceEvent::default()
-        });
-        self
-    }
-
-    /// Pushes a trace event with detailed information.
-    #[cfg(feature = "trace")]
-    pub fn push_trace_event_ext(
-        mut self,
-        name: impl Into<Cow<'static, str>>,
-        level: Option<TraceEventLevel>,
-        timestamp_unix_nano: Option<u64>,
-        attributes: impl IntoIterator<Item = TraceEventAttribute>,
-    ) -> Self {
-        self.diagnostics_mut().trace.events.push(TraceEvent {
-            name: name.into(),
-            level,
-            timestamp_unix_nano,
-            attributes: attributes.into_iter().collect(),
-        });
-        self
-    }
-
-    /// Sets the error code for the report.
-    pub fn with_error_code(mut self, error_code: impl Into<ErrorCode>) -> Self {
-        self.ensure_cold().metadata.error_code = Some(error_code.into());
-        self
-    }
-
-    /// Sets the severity for the report.
-    pub fn with_severity(mut self, severity: Severity) -> Self {
-        self.ensure_cold().metadata.severity = Some(severity);
-        self
-    }
-
-    /// Sets the category for the report.
-    pub fn with_category(mut self, category: impl Into<Cow<'static, str>>) -> Self {
-        self.ensure_cold().metadata.category = Some(category.into());
-        self
-    }
-
-    /// Sets whether the error is retryable.
-    pub fn with_retryable(mut self, retryable: bool) -> Self {
-        self.ensure_cold().metadata.retryable = Some(retryable);
-        self
-    }
-
-    /// Sets the stack trace for the report.
-    pub fn with_stack_trace(mut self, stack_trace: StackTrace) -> Self {
-        self.diagnostics_mut().stack_trace = Some(stack_trace);
-        self
-    }
-
-    /// Clears the stack trace from the report.
-    pub fn clear_stack_trace(mut self) -> Self {
-        self.diagnostics_mut().stack_trace = None;
-        self
-    }
-
-    /// Captures the stack trace for the report if not already present.
-    #[cfg(feature = "std")]
-    pub fn capture_stack_trace(mut self) -> Self {
-        if self.stack_trace().is_none() {
-            self.diagnostics_mut().stack_trace = Some(StackTrace::capture_raw());
-        }
-        self
-    }
-
-    /// Forcefully captures the stack trace for the report.
-    #[cfg(feature = "std")]
-    pub fn force_capture_stack(mut self) -> Self {
-        self.diagnostics_mut().stack_trace = Some(StackTrace::capture_raw());
-        self
-    }
-
-    /// Adds a display cause to the report.
-    pub fn with_display_cause(mut self, cause: impl Display + 'static) -> Self {
-        self.diagnostics_mut()
-            .display_causes
-            .get_or_insert_with(DisplayCauseChain::default)
-            .items
-            .push(Box::new(cause));
-        self
-    }
-
-    /// Adds multiple display causes to the report.
-    pub fn with_display_causes<I, T>(mut self, causes: I) -> Self
-    where
-        I: IntoIterator<Item = T>,
-        T: Display + 'static,
-    {
-        self.diagnostics_mut()
-            .display_causes
-            .get_or_insert_with(DisplayCauseChain::default)
-            .items
-            .extend(
-                causes
-                    .into_iter()
-                    .map(|cause| Box::new(cause) as Box<dyn Display + 'static>),
-            );
-        self
-    }
-
-    /// Adds an error source to the report's error chain.
-    pub fn with_source_error(mut self, err: impl Error + 'static) -> Self {
-        self.diagnostics_mut()
-            .source_errors
-            .get_or_insert_with(SourceErrorChain::default)
-            .items
-            .push(Box::new(err));
-        self
-    }
-
-    /// Wraps the report into another error type.
-    pub fn wrap<Outer>(self, outer: Outer) -> Report<Outer>
-    where
-        Self: Error + 'static,
-    {
-        let source_errors = alloc::vec![Box::new(self) as Box<dyn Error + 'static>];
-        Report {
-            inner: outer,
-            cold: Some(Box::new(ColdData {
-                metadata: ReportMetadata::default(),
-                diagnostics: DiagnosticBag {
-                    #[cfg(feature = "trace")]
-                    trace: ReportTrace::default(),
-                    stack_trace: None,
-                    attachments: Vec::new(),
-                    display_causes: None,
-                    source_errors: Some(SourceErrorChain {
-                        items: source_errors,
-                        ..SourceErrorChain::default()
-                    }),
-                },
-            })),
-        }
-    }
-
-    /// Wraps the report using a mapping function for the inner error.
-    pub fn wrap_with<Outer>(self, map: impl FnOnce(E) -> Outer) -> Report<Outer> {
-        let Self { inner, cold } = self;
-        let outer = map(inner);
-        Report { inner: outer, cold }
-    }
-
-    /// Visits display causes using default collection options.
-    pub fn visit_causes<F>(&self, visit: F) -> Result<CauseTraversalState, fmt::Error>
-    where
-        F: FnMut(&dyn Display) -> fmt::Result,
-        E: Error + 'static,
-    {
-        self.visit_causes_ext(CauseCollectOptions::default(), visit)
-    }
-
-    /// Visits display causes using custom collection options.
-    pub fn visit_causes_ext<F>(
-        &self,
-        options: CauseCollectOptions,
-        mut visit: F,
-    ) -> Result<CauseTraversalState, fmt::Error>
-    where
-        F: FnMut(&dyn Display) -> fmt::Result,
-        E: Error + 'static,
-    {
-        let mut state = CauseTraversalState::default();
-        let Some(diag) = self.diagnostics() else {
-            return Ok(state);
-        };
-        let Some(display_causes) = diag.display_causes.as_ref() else {
-            return Ok(state);
-        };
-        state.truncated |= display_causes.truncated;
-        state.cycle_detected |= display_causes.cycle_detected;
-        for (depth, cause) in display_causes.items.iter().enumerate() {
-            if depth >= options.max_depth {
-                state.truncated = true;
-                break;
-            }
-            visit(cause.as_ref())?;
-        }
-
-        Ok(state)
-    }
-
-    /// Visits source errors using default collection options.
-    pub fn visit_sources<F>(&self, visit: F) -> Result<CauseTraversalState, fmt::Error>
-    where
-        F: FnMut(&dyn Error) -> fmt::Result,
-        E: Error + 'static,
-    {
-        self.visit_sources_ext(CauseCollectOptions::default(), visit)
-    }
-
-    /// Visits source errors using custom collection options.
-    pub fn visit_sources_ext<F>(
-        &self,
-        options: CauseCollectOptions,
-        mut visit: F,
-    ) -> Result<CauseTraversalState, fmt::Error>
-    where
-        F: FnMut(&dyn Error) -> fmt::Result,
-        E: Error + 'static,
-    {
-        let mut iter = self.iter_sources_ext(options);
-        for err in iter.by_ref() {
-            visit(err)?;
-        }
-        Ok(iter.state())
-    }
+    trace: ReportTrace,
+    bag: DiagnosticBag,
 }
 
-/// Context injector type alias for global context providers.
-#[cfg(feature = "std")]
-pub(crate) type ContextInjector = dyn Fn() -> Option<GlobalContext> + Send + Sync + 'static;
-
-#[cfg(feature = "std")]
-pub(crate) fn global_context_injector() -> &'static OnceLock<Box<ContextInjector>> {
-    static INJECTOR: OnceLock<Box<ContextInjector>> = OnceLock::new();
-    &INJECTOR
-}
-
-/// Error returned when global context registration fails.
-#[cfg(feature = "std")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RegisterGlobalContextError;
-
-/// Registers a global context injector that will be invoked for every new report.
-#[cfg(feature = "std")]
-pub fn register_global_injector(
-    injector: impl Fn() -> Option<GlobalContext> + Send + Sync + 'static,
-) -> Result<(), RegisterGlobalContextError> {
-    global_context_injector()
-        .set(Box::new(injector))
-        .map_err(|_| RegisterGlobalContextError)
-}
-
-#[cfg(feature = "std")]
-pub(crate) fn apply_global_context(
-    attachments: &mut Vec<Attachment>,
-    #[cfg(feature = "trace")] trace_ctx: &mut TraceContext,
-) {
-    let Some(injector) = global_context_injector().get() else {
-        return;
-    };
-    let injected = catch_unwind(AssertUnwindSafe(injector));
-    let Some(global) = injected.unwrap_or_default() else {
-        return;
-    };
-    for (key, value) in global.context {
-        attachments.push(Attachment::context(key, value));
-    }
-    #[cfg(feature = "trace")]
-    {
-        if trace_ctx.trace_id.is_none() {
-            trace_ctx.trace_id = global.trace_id;
-        }
-        if trace_ctx.span_id.is_none() {
-            trace_ctx.span_id = global.span_id;
-        }
-        if trace_ctx.parent_span_id.is_none() {
-            trace_ctx.parent_span_id = global.parent_span_id;
-        }
-    }
-}
-
-impl<E> Report<E>
+impl<E, State> Report<E, State>
 where
-    E: Error + 'static,
+    State: SeverityState,
 {
-    /// Iterates source errors using default collection options.
-    pub fn iter_sources(&self) -> ReportSourceErrorIter<'_> {
-        self.iter_sources_ext(CauseCollectOptions::default())
+    /// Returns a reference to the diagnostics bag.
+    pub(crate) fn diagnostics(&self) -> &DiagnosticBag {
+        &self.data.bag
     }
 
-    /// Iterates source errors using custom collection options.
-    pub fn iter_sources_ext(&self, options: CauseCollectOptions) -> ReportSourceErrorIter<'_> {
-        let source_errors = self
-            .diagnostics()
-            .and_then(|diag| diag.source_errors.as_ref().map(|v| v.items.as_slice()))
-            .unwrap_or(&[]);
+    /// Returns a mutable reference to the diagnostics bag.
+    pub(crate) fn diagnostics_mut(&mut self) -> &mut DiagnosticBag {
+        &mut self.data.bag
+    }
 
-        ReportSourceErrorIter {
-            source_errors: source_errors.iter(),
-            root_source: self.inner.source(),
-            current: None,
-            stage: SourceErrorIterStage::Attached,
-            depth: 0,
+    /// Returns a reference to the metadata.
+    fn metadata_ref(&self) -> &ReportMetadata<State> {
+        &self.data.metadata
+    }
+}
+
+impl<E, State> Report<E, State>
+where
+    E: Error,
+    State: SeverityState,
+{
+    /// Builds a source error chain view based on stored errors and inner source.
+    fn source_errors_view(
+        &self,
+        stored: Option<&SourceErrorChain>,
+        include_inner_source: bool,
+        options: CauseCollectOptions,
+    ) -> Option<SourceErrorChain> {
+        let mut snapshot = stored.cloned();
+
+        if include_inner_source && let Some(source) = self.inner.source() {
+            let source_chain = SourceErrorChain::from_source(source, options);
+            match snapshot.as_mut() {
+                Some(existing) => append_source_chain(existing, source_chain),
+                None => snapshot = Some(source_chain),
+            }
+        }
+
+        let mut snapshot = snapshot?;
+        limit_depth_source_chain(&mut snapshot, options, 0);
+        if !options.detect_cycle {
+            snapshot.clear_cycle_flags();
+        }
+        Some(snapshot)
+    }
+
+    /// Returns the origin source error chain view for rendering.
+    pub(crate) fn origin_src_err_view(
+        &self,
+        options: CauseCollectOptions,
+    ) -> Option<SourceErrorChain> {
+        let bag: &DiagnosticBag = Report::<E, State>::diagnostics(self);
+        Report::<E, State>::source_errors_view(self, bag.origin_src_errors(), true, options)
+    }
+
+    /// Returns the diagnostic source error chain view for rendering.
+    pub(crate) fn diag_src_err_view(
+        &self,
+        options: CauseCollectOptions,
+    ) -> Option<SourceErrorChain> {
+        let bag: &DiagnosticBag = Report::<E, State>::diagnostics(self);
+        Report::<E, State>::source_errors_view(self, bag.diag_src_errors(), false, options)
+    }
+}
+
+impl<E> Report<E, MissingSeverity> {
+    /// Sets the severity for the report, transitioning to `HasSeverity` typestate.
+    ///
+    /// This method consumes the report and returns a new one with the severity
+    /// set. This is the primary way to transition from `MissingSeverity` to
+    /// `HasSeverity`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use diagweave::prelude::{Report, Severity};
+    /// use diagweave::Error;
+    ///
+    /// #[derive(Debug, Error)]
+    /// #[display("my error")]
+    /// struct MyError;
+    ///
+    /// let report = Report::new(MyError)
+    ///     .set_severity(Severity::Error);
+    /// ```
+    pub fn set_severity(self, severity: Severity) -> Report<E, HasSeverity> {
+        let Self { inner, data } = self;
+        let ReportData {
+            metadata,
             options,
-            seen: SeenErrorAddrs::new(),
-            state: CauseTraversalState::default(),
+            #[cfg(feature = "trace")]
+            trace,
+            bag,
+        } = *data;
+        Report {
+            inner,
+            data: Box::new(ReportData {
+                metadata: ReportMetadata::<MissingSeverity>::set_severity(metadata, severity),
+                options,
+                #[cfg(feature = "trace")]
+                trace,
+                bag,
+            }),
+        }
+    }
+}
+
+impl<E> Report<E, HasSeverity> {
+    /// Sets the severity to a new value.
+    ///
+    /// This method is provided for API consistency, allowing `set_severity`
+    /// to be called on both `MissingSeverity` and `HasSeverity` typestates.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use diagweave::prelude::{Report, Severity};
+    /// use diagweave::Error;
+    ///
+    /// #[derive(Debug, Error)]
+    /// #[display("my error")]
+    /// struct MyError;
+    ///
+    /// let report = Report::new(MyError)
+    ///     .set_severity(Severity::Warn);
+    /// let report = report.set_severity(Severity::Error); // Replace severity
+    /// assert_eq!(report.severity(), Some(Severity::Error));
+    /// ```
+    pub fn set_severity(self, severity: Severity) -> Report<E, HasSeverity> {
+        let Self { inner, data } = self;
+        let ReportData {
+            metadata,
+            options,
+            #[cfg(feature = "trace")]
+            trace,
+            bag,
+        } = *data;
+        Report {
+            inner,
+            data: Box::new(ReportData {
+                metadata: ReportMetadata::<HasSeverity>::set_severity(metadata, severity),
+                options,
+                #[cfg(feature = "trace")]
+                trace,
+                bag,
+            }),
         }
     }
 }

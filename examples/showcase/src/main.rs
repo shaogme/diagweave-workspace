@@ -2,13 +2,14 @@ use std::fmt::{Display, Formatter};
 use std::io;
 
 use diagweave::prelude::{
-    AttachmentValue, Compact, Diagnostic, Error, GlobalContext, Pretty, Report,
-    ReportRenderOptions, ReportRenderer, ReportResultExt, Severity, TraceEvent,
-    TraceEventAttribute, TraceEventLevel, register_global_injector, set, union,
+    AttachmentValue, Compact, ContextValue, Diagnostic, Error, GlobalContext, HasSeverity,
+    ParentSpanId, Pretty, Report, ReportRenderOptions, ReportRenderer, ResultReportExt, Severity,
+    SeverityState, SpanId, TraceEventAttribute, TraceEventLevel, TraceId, register_global_injector,
+    set, union,
 };
-use diagweave::render::{DiagnosticIr, Json, PrettyIndent, REPORT_JSON_SCHEMA_VERSION};
+use diagweave::render::{Json, PrettyIndent, REPORT_JSON_SCHEMA_VERSION};
 use diagweave::report::{StackTrace, StackTraceFormat};
-use diagweave::trace::TracingExporterTrait;
+use diagweave::trace::{EmitStats, PreparedTracingEmission, TracingExporterTrait};
 
 // =============================================================================
 // Part 1: Error Definitions using diagweave macros
@@ -22,9 +23,6 @@ set! {
     BaseError = {
         #[display("resource {id} not found")]
         NotFound { id: String },
-
-        #[display("permission denied for {role}")]
-        PermissionDenied { role: String },
 
         #[display("operation timed out after {0}ms")]
         Timeout(u64),
@@ -46,14 +44,11 @@ set! {
         #[from]
         #[display(transparent)]
         Io(io::Error),
-
-        #[display("host {host} unreachable: {reason}")]
-        Unreachable { host: String, reason: String },
     }
 
     /// Composition: A large set combining multiple sub-sets
     #[derive(Debug)]
-    AppError = BaseError | AuthError | NetworkError | {
+    pub AppError = BaseError | AuthError | NetworkError | {
         #[display("internal application error: {msg}")]
         Internal { msg: String },
     }
@@ -108,8 +103,12 @@ union! {
 
 struct EmojiRenderer;
 
-impl<E: Display> ReportRenderer<E> for EmojiRenderer {
-    fn render(&self, report: &Report<E>, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl<E, State> ReportRenderer<E, State> for EmojiRenderer
+where
+    E: Display,
+    State: SeverityState,
+{
+    fn render(&self, report: &Report<E, State>, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "🚨 ERROR: {} 🚨", report.inner())
     }
 }
@@ -117,15 +116,19 @@ impl<E: Display> ReportRenderer<E> for EmojiRenderer {
 struct ConsoleExporter;
 
 impl TracingExporterTrait for ConsoleExporter {
-    fn export_ir(&self, ir: &DiagnosticIr) {
+    fn export_prepared(&self, emission: PreparedTracingEmission<'_>) -> EmitStats {
+        let stats = emission.stats();
+        let ir = emission.ir();
         println!(
-            "[Tracing Exporter] error={}, severity={:?}, context_count={}, attachment_count={}, stack_trace={}",
+            "[Tracing Exporter] error={}, severity={:?}, required_severity={:?}, context_count={}, attachment_count={}, stack_trace={}",
             ir.error.message,
-            ir.metadata.severity,
-            ir.context_count,
-            ir.attachment_count,
-            ir.metadata.stack_trace.is_some()
+            ir.metadata.severity(),
+            ir.metadata.required_severity(),
+            ir.context.len(),
+            ir.attachments.len(),
+            ir.metadata.stack_trace().is_some()
         );
+        stats
     }
 }
 
@@ -145,66 +148,85 @@ fn db_operation() -> Result<(), DatabaseError> {
 }
 
 fn service_layer(user_id: u64) -> Result<(), Report<AppError>> {
-    db_operation()
-        .diag_context("user_id", user_id)
-        .with_note("failing over to secondary database")
-        .with_display_cause("db operation failed")
-        .with_display_cause("query plan fallback selected")
-        .with_source_error(io::Error::other("replica lag detected"))
-        .capture_stack_trace()
-        .wrap_with(|db_err| match db_err {
-            DatabaseError::ConnectionLost(io) => AppError::Io(io),
-            DatabaseError::ConstraintViolation { .. } => AppError::Internal {
-                msg: "db constraint".into(),
-            },
-        })?;
+    db_operation().diag(|r| {
+        r.with_ctx("user_id", user_id)
+            .attach_note("failing over to secondary database")
+            .with_display_cause("db operation failed")
+            .with_display_cause("query plan fallback selected")
+            .with_diag_src_err(io::Error::other("replica lag detected"))
+            .capture_stack_trace()
+            .map_err(|db_err| match db_err {
+                DatabaseError::ConnectionLost(io) => AppError::Io(io),
+                DatabaseError::ConstraintViolation { .. } => AppError::Internal {
+                    msg: "db constraint".into(),
+                },
+            })
+    })?;
 
     Ok(())
 }
 
-fn api_handler(request_id: &'static str) -> Result<String, Report<ApiError>> {
-    service_layer(1001)
-        .with_context("request_id", request_id)
-        .with_payload(
-            "request_meta",
-            serde_json::json!({ "version": "v1", "retry": 3 }),
-            Some("application/json".to_owned()),
-        )
-        .with_error_code("ERR_AUTH_001")
-        .with_severity(Severity::Fatal)
-        .with_category("auth")
-        .with_retryable(false)
-        .with_trace_ids("4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7")
-        .with_parent_span_id("1111111111111111")
-        .with_trace_sampled(true)
-        .with_trace_state("service=api")
-        .with_trace_flags(1)
-        .with_trace_event(TraceEvent {
-            name: "api.handler".into(),
-            level: Some(TraceEventLevel::Error),
-            timestamp_unix_nano: Some(1_713_337_000_000_000_000),
-            attributes: vec![
-                TraceEventAttribute {
-                    key: "http.route".into(),
-                    value: AttachmentValue::from("/v1/session"),
-                },
-                TraceEventAttribute {
-                    key: "component".into(),
-                    value: AttachmentValue::from("gateway"),
-                },
-            ],
-        })
-        .wrap_with(ApiError::App)?;
+fn api_handler(request_id: &'static str) -> Result<String, Report<ApiError, HasSeverity>> {
+    let (trace_id, span_id, parent_span_id) = parse_trace_ids()?;
+
+    service_layer(1001).and_then_report(|r| {
+        r.with_ctx("request_id", request_id)
+            .attach_payload(
+                "request_meta",
+                serde_json::json!({
+                    "version": "v1",
+                    "retry": 3
+                }),
+                Some("application/json"),
+            )
+            .with_error_code("ERR_AUTH_001")
+            .with_severity(Severity::Fatal)
+            .with_category("auth")
+            .with_retryable(false)
+            .with_trace_ids(trace_id, span_id)
+            .with_parent_span_id(parent_span_id)
+            .with_trace_sampled(true)
+            .with_trace_state("service=api")
+            .push_trace_event_with(
+                "api.handler",
+                Some(TraceEventLevel::Error),
+                Some(1_713_337_000_000_000_000),
+                vec![
+                    TraceEventAttribute {
+                        key: "http.route".into(),
+                        value: AttachmentValue::from("/v1/session"),
+                    },
+                    TraceEventAttribute {
+                        key: "component".into(),
+                        value: AttachmentValue::from("gateway"),
+                    },
+                ],
+            )
+            .map_err(ApiError::App)
+    })?;
 
     Ok("Success".into())
 }
 
-fn print_render_outputs<E>(report: &Report<E>)
+/// Parses trace IDs from hardcoded strings.
+/// Returns an error report if any ID is invalid.
+fn parse_trace_ids() -> Result<(TraceId, SpanId, ParentSpanId), Report<ApiError, HasSeverity>> {
+    let trace_id = TraceId::from_str("4bf92f3577b34da6a3ce929d0e0e4736")
+        .map_err(|_| Report::new(ApiError::retry_later(1)).with_severity(Severity::Error))?;
+    let span_id = SpanId::from_str("00f067aa0ba902b7")
+        .map_err(|_| Report::new(ApiError::retry_later(1)).with_severity(Severity::Error))?;
+    let parent_span_id = ParentSpanId::from_str("1111111111111111")
+        .map_err(|_| Report::new(ApiError::retry_later(1)).with_severity(Severity::Error))?;
+    Ok((trace_id, span_id, parent_span_id))
+}
+
+fn print_render_outputs<E, State>(report: &Report<E, State>)
 where
-    E: std::error::Error + Display + 'static,
+    E: std::error::Error,
+    State: SeverityState,
 {
     println!("--- Compact Rendering ---");
-    println!("{}\n", report.render(Compact));
+    println!("{}\n", report.render(Compact::summary()));
 
     let pretty_opts = ReportRenderOptions {
         pretty_indent: PrettyIndent::Spaces(2),
@@ -234,7 +256,8 @@ where
         "JSON check: schema_version={}, causes_present={}\n",
         parsed["schema_version"],
         parsed["diagnostic_bag"]["display_causes"].is_object()
-            || parsed["diagnostic_bag"]["source_errors"].is_object()
+            || parsed["diagnostic_bag"]["origin_source_errors"].is_object()
+            || parsed["diagnostic_bag"]["diagnostic_source_errors"].is_object()
     );
 
     let lean_pretty_opts = ReportRenderOptions {
@@ -248,9 +271,10 @@ where
     println!("{}\n", report.render(Pretty::new(lean_pretty_opts)));
 }
 
-fn print_display_causes<E>(report: &Report<E>)
+fn print_display_causes<E, State>(report: &Report<E, State>)
 where
-    E: Display + std::error::Error + 'static,
+    E: Display + std::error::Error,
+    State: SeverityState,
 {
     println!("Display Causes:");
     if report.display_causes().is_empty() {
@@ -274,23 +298,47 @@ where
     }
 }
 
-fn print_source_errors<E>(report: &Report<E>)
+fn print_source_errors<E, State>(report: &Report<E, State>)
 where
-    E: std::error::Error + 'static,
+    E: std::error::Error,
+    State: SeverityState,
 {
-    println!("Error Causes (Source Errors Chain):");
-    if report.iter_sources().next().is_none() {
+    println!("Origin Source Errors:");
+    if report.iter_origin_sources().next().is_none() {
         println!("  (none)");
     } else {
         let mut idx = 0usize;
-        let _ = report.visit_sources(|source| {
+        let _ = report.visit_origin_sources(|source| {
             idx += 1;
-            println!("  {}. {}", idx, source);
+            println!("  {}. {}", idx, source.error);
             Ok(())
         });
         let mut source_count = 0usize;
         let state = report
-            .visit_sources(|_| {
+            .visit_origin_sources(|_| {
+                source_count += 1;
+                Ok(())
+            })
+            .unwrap_or_else(|_| diagweave::report::CauseTraversalState::default());
+        println!(
+            "  summary: count={}, truncated={}, cycle_detected={}",
+            source_count, state.truncated, state.cycle_detected
+        );
+    }
+
+    println!("Diagnostic Source Errors:");
+    if report.iter_diag_sources().next().is_none() {
+        println!("  (none)");
+    } else {
+        let mut idx = 0usize;
+        let _ = report.visit_diag_sources(|source| {
+            idx += 1;
+            println!("  {}. {}", idx, source.error);
+            Ok(())
+        });
+        let mut source_count = 0usize;
+        let state = report
+            .visit_diag_sources(|_| {
                 source_count += 1;
                 Ok(())
             })
@@ -302,30 +350,32 @@ where
     }
 }
 
-fn print_ir_and_adapters<E>(report: &Report<E>)
+fn print_ir_and_adapters<E>(report: &Report<E, HasSeverity>)
 where
-    E: std::error::Error + Display + 'static,
+    E: std::error::Error,
 {
-    let ir = report.to_diagnostic_ir(ReportRenderOptions::default());
+    let ir = report.to_diagnostic_ir();
     println!("--- Diagnostic IR (Metadata) ---");
-    println!("Error Code: {:?}", ir.metadata.error_code);
-    println!("Severity: {:?}", ir.metadata.severity);
-    println!("StackTrace Present: {}", ir.metadata.stack_trace.is_some());
+    println!("Error Code: {:?}", ir.metadata.error_code());
+    println!("Severity: {:?}", ir.metadata.severity());
+    println!("Severity: {:?}", ir.metadata.severity());
+    println!(
+        "StackTrace Present: {}",
+        ir.metadata.stack_trace().is_some()
+    );
 
     print_display_causes(report);
     print_source_errors(report);
     println!();
 
     let tracing_fields = ir.to_tracing_fields();
-    let otel = ir.to_otel_envelope();
-    println!("Tracing fields count: {}", tracing_fields.len());
-    println!(
-        "OTel attributes/events: {}/{}\n",
-        otel.attributes.len(),
-        otel.events.len()
+    let otel = ir.to_otel_envelope(
+        diagweave::otel::OtelEnvelopeConfig::new().with_namespace("diagweave.otel"),
     );
+    println!("Tracing fields count: {}", tracing_fields.len());
+    println!("OTel records: {}\n", otel.records.len());
 
-    report.emit_tracing_with(&ConsoleExporter, ReportRenderOptions::default());
+    report.prepare_tracing().emit_with(&ConsoleExporter);
     println!();
 }
 
@@ -333,10 +383,11 @@ fn demo_specialized_stores() {
     println!("--- Unified Display Causes ---");
 
     let report = Result::<(), _>::Err(BaseError::not_found("item_1".into()))
-        .diag()
-        .with_display_cause("cache invalidated")
-        .with_display_cause(io::Error::other("hardware failure"))
-        .with_note("local processing delayed")
+        .diag(|r| {
+            r.with_display_cause("cache invalidated")
+                .with_display_cause(io::Error::other("hardware failure"))
+                .attach_note("local processing delayed")
+        })
         .expect_err("demo");
     println!("Report:\n{}\n", report.pretty());
 }
@@ -358,20 +409,20 @@ fn demo_type_conversion() {
     println!("Automatic conversion sequence: Auth -> App -> Api works!");
 }
 
-fn demo_attachments() {
+fn demo_context_and_payloads() {
     let report = Report::new(BaseError::Timeout(100))
-        .attach("tags", vec!["auth", "slow", "v2"])
-        .attach("score", 0.95)
-        .attach("raw_bytes", vec![0xDE, 0xAD, 0xBE, 0xEF])
-        .attach(
+        .with_ctx("tags", vec!["auth", "slow", "v2"])
+        .with_ctx("score", 0.95)
+        .with_ctx("byte_values", vec![0xDEu64, 0xAD, 0xBE, 0xEF])
+        .with_ctx(
             "secret",
-            AttachmentValue::Redacted {
+            ContextValue::Redacted {
                 kind: Some("password".into()),
                 reason: Some("masked".into()),
             },
         );
 
-    println!("--- Diverse Attachments ---");
+    println!("--- Context Values ---");
     println!("{}\n", report.pretty());
 }
 
@@ -386,10 +437,12 @@ fn init_tracing() {
 fn init_global_context() {
     let _ = register_global_injector(|| {
         let mut ctx = GlobalContext::default();
-        ctx.context
-            .push(("global_request_id".into(), "req-global-001".into()));
-        ctx.trace_id = Some("trace-global-abc".into());
-        ctx.span_id = Some("span-global-def".into());
+        ctx.context.insert("global_request_id", "req-global-001");
+        ctx.trace = Some(diagweave::report::TraceContext {
+            trace_id: TraceId::from_str("4bf92f3577b34da6a3ce929d0e0e4736").ok(),
+            span_id: SpanId::from_str("00f067aa0ba902b7").ok(),
+            ..diagweave::report::TraceContext::default()
+        });
         Some(ctx)
     });
 }
@@ -402,16 +455,17 @@ fn demo_new_capabilities() {
     println!("constructor_prefix: {}", ctor);
     println!("constructor_prefix report: {}", ctor_report);
 
-    let variant_report = AuthError::SessionExpired { user_id: 1001 }.diag();
-    println!("Variant.diag(): {}", variant_report);
+    let variant_report = AuthError::SessionExpired { user_id: 1001 }.to_report();
+    println!("Variant.to_report(): {}", variant_report);
 
     let auto_ctx = Report::new(BaseError::Timeout(1500));
     println!(
         "global injector auto context: {}\n",
         auto_ctx
-            .attachments()
+            .context()
             .iter()
-            .find_map(|a| a.as_context().map(|(k, v)| format!("{k}={v}")))
+            .map(|(k, v)| format!("{k}={v}"))
+            .next()
             .unwrap_or_else(|| "(none)".to_owned())
     );
 }
@@ -444,5 +498,5 @@ fn main() {
     demo_specialized_stores();
     demo_type_conversion();
     demo_manual_stack_trace();
-    demo_attachments();
+    demo_context_and_payloads();
 }

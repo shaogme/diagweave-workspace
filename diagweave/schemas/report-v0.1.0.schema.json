@@ -5,7 +5,7 @@
   "$defs": {
     "severity": {
       "type": "string",
-      "enum": ["debug", "info", "warn", "error", "fatal"]
+      "enum": ["trace", "debug", "info", "warn", "error", "fatal"]
     },
     "trace_event_level": {
       "type": "string",
@@ -18,27 +18,38 @@
     "stack_frame": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["symbol", "module_path", "file", "line", "column"],
       "properties": {
-        "symbol": { "type": ["string", "null"] },
-        "module_path": { "type": ["string", "null"] },
-        "file": { "type": ["string", "null"] },
-        "line": { "type": ["integer", "null"], "minimum": 0 },
-        "column": { "type": ["integer", "null"], "minimum": 0 }
+        "symbol": { "type": "string" },
+        "module_path": { "type": "string" },
+        "file": { "type": "string" },
+        "line": { "type": "integer", "minimum": 0 },
+        "column": { "type": "integer", "minimum": 0 }
       }
     },
     "stack_trace": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["format", "frames", "raw"],
-      "properties": {
-        "format": { "$ref": "#/$defs/stack_trace_format" },
-        "frames": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/stack_frame" }
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "frames"],
+          "properties": {
+            "format": { "const": "native" },
+            "frames": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/stack_frame" }
+            }
+          }
         },
-        "raw": { "type": ["string", "null"] }
-      }
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "raw"],
+          "properties": {
+            "format": { "const": "raw" },
+            "raw": { "type": "string" }
+          }
+        }
+      ]
     },
     "display_cause_chain": {
       "type": "object",
@@ -53,14 +64,31 @@
         "cycle_detected": { "type": "boolean" }
       }
     },
+    "source_error_node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message", "source_roots"],
+      "properties": {
+        "message": { "type": "string" },
+        "type": { "type": "string" },
+        "source_roots": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
     "source_error_chain": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["items", "truncated", "cycle_detected"],
+      "required": ["roots", "nodes", "truncated", "cycle_detected"],
       "properties": {
-        "items": {
+        "roots": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "integer", "minimum": 0 }
+        },
+        "nodes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/source_error_node" }
         },
         "truncated": { "type": "boolean" },
         "cycle_detected": { "type": "boolean" }
@@ -68,14 +96,6 @@
     },
     "attachment_value": {
       "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["kind"],
-          "properties": {
-            "kind": { "const": "null" }
-          }
-        },
         {
           "type": "object",
           "additionalProperties": false,
@@ -175,65 +195,294 @@
         }
       ]
     },
+    "trace_value": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "string" },
+            "value": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "integer" },
+            "value": { "type": "integer" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "unsigned" },
+            "value": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "float" },
+            "value": { "type": "number" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "bool" },
+            "value": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "array" },
+            "value": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/trace_value" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "object" },
+            "value": {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/$defs/trace_value" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "bytes" },
+            "value": {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 0, "maximum": 255 }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "redacted" },
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "type": ["string", "null"] },
+                "reason": { "type": ["string", "null"] }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "trace_attribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value"],
+      "properties": {
+        "key": { "type": "string" },
+        "value": { "$ref": "#/$defs/trace_value" }
+      }
+    },
     "trace_context": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "trace_id",
-        "span_id",
-        "parent_span_id",
-        "sampled",
-        "trace_state",
-        "flags"
-      ],
       "properties": {
-        "trace_id": { "type": ["string", "null"] },
-        "span_id": { "type": ["string", "null"] },
-        "parent_span_id": { "type": ["string", "null"] },
-        "sampled": { "type": ["boolean", "null"] },
-        "trace_state": { "type": ["string", "null"] },
-        "flags": { "type": ["integer", "null"], "minimum": 0 }
+        "trace_id": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f]{32}$",
+          "description": "16-byte trace ID encoded as 32 hex chars. The OTEL adapter uses this directly as TraceId."
+        },
+        "span_id": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f]{16}$",
+          "description": "8-byte span ID encoded as 16 hex chars. The OTEL adapter uses this directly as SpanId."
+        },
+        "parent_span_id": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f]{16}$",
+          "description": "Parent span ID encoded as 16 hex chars. The OTEL adapter uses this directly as ParentSpanId."
+        },
+        "sampled": { "type": "boolean" },
+        "trace_state": {
+          "type": "string",
+          "description": "W3C trace state string. The OTEL adapter uses this directly as TraceState."
+        },
+        "flags": { "type": "integer", "minimum": 0, "maximum": 255 }
       }
+    },
+    "context_value": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "string" },
+            "value": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "integer" },
+            "value": { "type": "integer" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "unsigned" },
+            "value": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "float" },
+            "value": { "type": "number" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "bool" },
+            "value": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "string_array" },
+            "value": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "integer_array" },
+            "value": {
+              "type": "array",
+              "items": { "type": "integer" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "unsigned_array" },
+            "value": {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "float_array" },
+            "value": {
+              "type": "array",
+              "items": { "type": "number" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "bool_array" },
+            "value": {
+              "type": "array",
+              "items": { "type": "boolean" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "redacted" },
+            "value": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "type": ["string", "null"] },
+                "reason": { "type": ["string", "null"] }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "context_map": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": { "$ref": "#/$defs/context_value" }
     },
     "trace_event": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "level", "timestamp_unix_nano", "attributes"],
+      "required": ["name"],
       "properties": {
         "name": { "type": "string" },
-        "level": {
-          "oneOf": [
-            { "$ref": "#/$defs/trace_event_level" },
-            { "type": "null" }
-          ]
-        },
-        "timestamp_unix_nano": { "type": ["integer", "null"], "minimum": 0 },
+        "level": { "$ref": "#/$defs/trace_event_level" },
+        "timestamp_unix_nano": { "type": "integer", "minimum": 0 },
         "attributes": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["key", "value"],
-            "properties": {
-              "key": { "type": "string" },
-              "value": { "$ref": "#/$defs/attachment_value" }
-            }
-          }
+          "items": { "$ref": "#/$defs/trace_attribute" }
         }
       }
     }
   },
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "schema_version",
-    "error",
-    "metadata",
-    "diagnostic_bag",
-    "trace",
-    "context",
-    "attachments"
-  ],
+  "required": ["schema_version", "error"],
   "properties": {
     "schema_version": {
       "type": "string",
@@ -251,48 +500,26 @@
     "metadata": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["error_code", "severity", "category", "retryable"],
       "properties": {
         "error_code": {
           "oneOf": [
             { "type": "string" },
-            { "type": "integer" },
-            { "type": "null" }
+            { "type": "integer" }
           ]
         },
-        "severity": {
-          "oneOf": [
-            { "$ref": "#/$defs/severity" },
-            { "type": "null" }
-          ]
-        },
-        "category": { "type": ["string", "null"] },
-        "retryable": { "type": ["boolean", "null"] }
+        "severity": { "$ref": "#/$defs/severity" },
+        "category": { "type": "string" },
+        "retryable": { "type": "boolean" }
       }
     },
     "diagnostic_bag": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["stack_trace", "display_causes", "source_errors"],
       "properties": {
-        "stack_trace": {
-          "oneOf": [
-            { "$ref": "#/$defs/stack_trace" },
-            { "type": "null" }
-          ]
-        },
-        "display_causes": {
-          "oneOf": [
-            { "$ref": "#/$defs/display_cause_chain" },
-            { "type": "null" }
-          ]
-        },
-        "source_errors": {
-          "oneOf": [
-            { "$ref": "#/$defs/source_error_chain" },
-            { "type": "null" }
-          ]
-        }
+        "stack_trace": { "$ref": "#/$defs/stack_trace" },
+        "display_causes": { "$ref": "#/$defs/display_cause_chain" },
+        "origin_source_errors": { "$ref": "#/$defs/source_error_chain" },
+        "diagnostic_source_errors": { "$ref": "#/$defs/source_error_chain" }
       }
     },
     "trace": {
@@ -308,16 +535,10 @@
       }
     },
     "context": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["key", "value"],
-        "properties": {
-          "key": { "type": "string" },
-          "value": { "$ref": "#/$defs/attachment_value" }
-        }
-      }
+      "$ref": "#/$defs/context_map"
+    },
+    "system": {
+      "$ref": "#/$defs/context_map"
     },
     "attachments": {
       "type": "array",

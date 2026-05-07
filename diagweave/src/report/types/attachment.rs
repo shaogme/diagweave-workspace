@@ -1,39 +1,38 @@
-use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use core::fmt::{self, Display, Formatter};
+use ref_str::StaticRefStr;
 
-#[derive(Debug, Clone, PartialEq, Default)]
+use crate::utils::FastMap;
+
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
     feature = "json",
     serde(tag = "kind", content = "value", rename_all = "snake_case")
 )]
-/// Represents a value that can be attached to a diagnostic report.
+/// Represents a value that can be attached to a diagnostic report payload.
 pub enum AttachmentValue {
-    #[default]
-    Null,
-    String(Cow<'static, str>),
+    String(StaticRefStr),
     Integer(i64),
     Unsigned(u64),
     Float(f64),
     Bool(bool),
     Array(Vec<AttachmentValue>),
-    Object(BTreeMap<String, AttachmentValue>),
+    Object(FastMap<StaticRefStr, AttachmentValue>),
     Bytes(Vec<u8>),
     Redacted {
-        kind: Option<Cow<'static, str>>,
-        reason: Option<Cow<'static, str>>,
+        kind: Option<StaticRefStr>,
+        reason: Option<StaticRefStr>,
     },
 }
 
 impl Display for AttachmentValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Null => write!(f, "null"),
             Self::String(value) => write!(f, "{value}"),
             Self::Integer(value) => write!(f, "{value}"),
             Self::Unsigned(value) => write!(f, "{value}"),
@@ -51,7 +50,7 @@ impl Display for AttachmentValue {
             }
             Self::Object(values) => {
                 write!(f, "{{")?;
-                for (idx, (key, value)) in values.iter().enumerate() {
+                for (idx, (key, value)) in values.sorted_entries().into_iter().enumerate() {
                     if idx > 0 {
                         write!(f, ", ")?;
                     }
@@ -72,13 +71,19 @@ impl Display for AttachmentValue {
 
 impl From<String> for AttachmentValue {
     fn from(value: String) -> Self {
-        Self::String(Cow::Owned(value))
+        Self::String(value.into())
     }
 }
 
 impl From<&'static str> for AttachmentValue {
     fn from(value: &'static str) -> Self {
-        Self::String(Cow::Borrowed(value))
+        Self::String(value.into())
+    }
+}
+
+impl From<StaticRefStr> for AttachmentValue {
+    fn from(value: StaticRefStr) -> Self {
+        Self::String(value)
     }
 }
 
@@ -150,23 +155,13 @@ impl From<f64> for AttachmentValue {
 
 impl From<Vec<String>> for AttachmentValue {
     fn from(value: Vec<String>) -> Self {
-        Self::Array(
-            value
-                .into_iter()
-                .map(|s| Self::String(Cow::Owned(s)))
-                .collect(),
-        )
+        Self::Array(value.into_iter().map(|s| Self::String(s.into())).collect())
     }
 }
 
 impl From<Vec<&'static str>> for AttachmentValue {
     fn from(value: Vec<&'static str>) -> Self {
-        Self::Array(
-            value
-                .into_iter()
-                .map(|s| Self::String(Cow::Borrowed(s)))
-                .collect(),
-        )
+        Self::Array(value.into_iter().map(|s| Self::String(s.into())).collect())
     }
 }
 
@@ -176,32 +171,42 @@ impl From<Vec<u8>> for AttachmentValue {
     }
 }
 
-impl<T> From<Option<T>> for AttachmentValue
-where
-    T: Into<AttachmentValue>,
-{
-    fn from(value: Option<T>) -> Self {
-        match value {
-            Some(v) => v.into(),
-            None => Self::Null,
-        }
-    }
-}
-
-impl<V> From<BTreeMap<String, V>> for AttachmentValue
+impl<V, K: Into<StaticRefStr>> From<FastMap<K, V>> for AttachmentValue
 where
     V: Into<AttachmentValue>,
 {
-    fn from(value: BTreeMap<String, V>) -> Self {
-        Self::Object(value.into_iter().map(|(k, v)| (k, v.into())).collect())
+    fn from(value: FastMap<K, V>) -> Self {
+        Self::Object(
+            value
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        )
+    }
+}
+
+impl<V, K: Into<StaticRefStr>> From<BTreeMap<K, V>> for AttachmentValue
+where
+    V: Into<AttachmentValue>,
+{
+    fn from(value: BTreeMap<K, V>) -> Self {
+        Self::Object(
+            value
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        )
     }
 }
 
 #[cfg(feature = "json")]
 impl From<serde_json::Value> for AttachmentValue {
+    /// Converts a JSON value into an attachment value when it has a supported shape.
+    ///
+    /// `null` is preserved as an empty object for compatibility with older payloads.
     fn from(value: serde_json::Value) -> Self {
         match value {
-            serde_json::Value::Null => Self::Null,
+            serde_json::Value::Null => Self::Object(FastMap::new()),
             serde_json::Value::Bool(b) => Self::Bool(b),
             serde_json::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
@@ -212,14 +217,14 @@ impl From<serde_json::Value> for AttachmentValue {
                     Self::Float(n.as_f64().unwrap_or(0.0))
                 }
             }
-            serde_json::Value::String(s) => Self::String(Cow::Owned(s)),
+            serde_json::Value::String(s) => Self::String(s.into()),
             serde_json::Value::Array(arr) => {
                 Self::Array(arr.into_iter().map(AttachmentValue::from).collect())
             }
             serde_json::Value::Object(obj) => {
-                let mut map = BTreeMap::new();
+                let mut map = FastMap::with_capacity(obj.len());
                 for (k, v) in obj {
-                    map.insert(k, AttachmentValue::from(v));
+                    map.insert(k.into(), Self::from(v));
                 }
                 Self::Object(map)
             }
@@ -229,56 +234,19 @@ impl From<serde_json::Value> for AttachmentValue {
 
 /// Represents an attachment to a diagnostic report, such as context, notes, or payloads.
 pub enum Attachment {
-    Context {
-        key: Cow<'static, str>,
-        value: AttachmentValue,
-    },
     Note {
-        message: Box<dyn Display + 'static>,
+        message: Box<dyn Display + Send + Sync + 'static>,
     },
     Payload {
-        name: Cow<'static, str>,
+        name: StaticRefStr,
         value: AttachmentValue,
-        media_type: Option<Cow<'static, str>>,
+        media_type: Option<StaticRefStr>,
     },
-}
-
-impl Clone for Attachment {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Context { key, value } => Self::Context {
-                key: key.clone(),
-                value: value.clone(),
-            },
-            Self::Note { message } => Self::Note {
-                message: Box::new(message.to_string()),
-            },
-            Self::Payload {
-                name,
-                value,
-                media_type,
-            } => Self::Payload {
-                name: name.clone(),
-                value: value.clone(),
-                media_type: media_type.clone(),
-            },
-        }
-    }
 }
 
 impl PartialEq for Attachment {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (
-                Self::Context {
-                    key: l_key,
-                    value: l_value,
-                },
-                Self::Context {
-                    key: r_key,
-                    value: r_value,
-                },
-            ) => l_key == r_key && l_value == r_value,
             (Self::Note { message: l }, Self::Note { message: r }) => {
                 l.to_string() == r.to_string()
             }
@@ -302,11 +270,6 @@ impl PartialEq for Attachment {
 impl core::fmt::Debug for Attachment {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Context { key, value } => f
-                .debug_struct("Context")
-                .field("key", key)
-                .field("value", value)
-                .finish(),
             Self::Note { message } => f
                 .debug_struct("Note")
                 .field("message", &message.to_string())
@@ -329,17 +292,13 @@ impl core::fmt::Debug for Attachment {
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum AttachmentSerde {
-    Context {
-        key: Cow<'static, str>,
-        value: AttachmentValue,
-    },
     Note {
         message: String,
     },
     Payload {
-        name: Cow<'static, str>,
+        name: StaticRefStr,
         value: AttachmentValue,
-        media_type: Option<Cow<'static, str>>,
+        media_type: Option<StaticRefStr>,
     },
 }
 
@@ -350,10 +309,6 @@ impl serde::Serialize for Attachment {
         S: serde::Serializer,
     {
         let helper = match self {
-            Self::Context { key, value } => AttachmentSerde::Context {
-                key: key.clone(),
-                value: value.clone(),
-            },
             Self::Note { message } => AttachmentSerde::Note {
                 message: message.to_string(),
             },
@@ -379,7 +334,6 @@ impl<'de> serde::Deserialize<'de> for Attachment {
     {
         let helper = AttachmentSerde::deserialize(deserializer)?;
         Ok(match helper {
-            AttachmentSerde::Context { key, value } => Self::Context { key, value },
             AttachmentSerde::Note { message } => Self::Note {
                 message: Box::new(message),
             },
@@ -397,16 +351,8 @@ impl<'de> serde::Deserialize<'de> for Attachment {
 }
 
 impl Attachment {
-    /// Creates a new context attachment with a key and value.
-    pub fn context(key: impl Into<Cow<'static, str>>, value: impl Into<AttachmentValue>) -> Self {
-        Self::Context {
-            key: key.into(),
-            value: value.into(),
-        }
-    }
-
     /// Creates a new note attachment with a message.
-    pub fn note(message: impl Display + 'static) -> Self {
+    pub fn note(message: impl Display + Send + Sync + 'static) -> Self {
         Self::Note {
             message: Box::new(message),
         }
@@ -414,9 +360,9 @@ impl Attachment {
 
     /// Creates a new payload attachment with a name, value, and optional media type.
     pub fn payload(
-        name: impl Into<Cow<'static, str>>,
+        name: impl Into<StaticRefStr>,
         value: impl Into<AttachmentValue>,
-        media_type: Option<impl Into<Cow<'static, str>>>,
+        media_type: Option<impl Into<StaticRefStr>>,
     ) -> Self {
         Self::Payload {
             name: name.into(),
@@ -425,27 +371,19 @@ impl Attachment {
         }
     }
 
-    /// Attempts to interpret the attachment as a context entry.
-    pub fn as_context(&self) -> Option<(&str, &AttachmentValue)> {
-        match self {
-            Self::Context { key, value } => Some((key.as_ref(), value)),
-            Self::Note { .. } | Self::Payload { .. } => None,
-        }
-    }
-
     /// Attempts to interpret the attachment as a note message.
-    pub fn as_note(&self) -> Option<Cow<'_, str>> {
+    pub fn as_note(&self) -> Option<String> {
         match self {
-            Self::Note { message } => Some(Cow::Owned(message.to_string())),
-            Self::Context { .. } | Self::Payload { .. } => None,
+            Self::Note { message } => Some(message.to_string()),
+            Self::Payload { .. } => None,
         }
     }
 
     /// Returns the note as `Display` for zero-allocation access.
-    pub fn as_note_display(&self) -> Option<&(dyn Display + 'static)> {
+    pub fn as_note_display(&self) -> Option<&(dyn Display + Send + Sync + 'static)> {
         match self {
             Self::Note { message } => Some(message.as_ref()),
-            Self::Context { .. } | Self::Payload { .. } => None,
+            Self::Payload { .. } => None,
         }
     }
 
@@ -456,8 +394,12 @@ impl Attachment {
                 name,
                 value,
                 media_type,
-            } => Some((name.as_ref(), value, media_type.as_deref())),
-            Self::Context { .. } | Self::Note { .. } => None,
+            } => Some((
+                name.as_str(),
+                value,
+                media_type.as_ref().map(|v| v.as_str()),
+            )),
+            Self::Note { .. } => None,
         }
     }
 }

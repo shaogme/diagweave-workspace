@@ -37,7 +37,8 @@
   - [独立 `#[derive(Error)]`](#独立-deriveerror)
   - [`Report` 与链式 API](#report-与链式-api)
   - [渲染与导出](#渲染与导出)
-  - [来自 `diagweave-example` 的高级模式](#来自-diagweave-example-的高级模式)
+    - [OTEL schema](#otel-schema)
+  - [来自 `showcase` 的高级模式](#来自-showcase-的高级模式)
   - [与其他库的对比](#与其他库的对比)
   - [Feature](#feature)
   - [仓库结构](#仓库结构)
@@ -78,8 +79,8 @@ diagweave = { version = "0.1", default-features = false }
 
 ## 快速开始
 
-```rust,no_run
-use diagweave::prelude::{set, Diagnostic, Report, ReportResultExt};
+```rust
+use diagweave::prelude::{set, Diagnostic, Report, ResultReportExt};
 
 set! {
     AuthError = {
@@ -97,10 +98,20 @@ fn verify(user_id: u64) -> Result<(), AuthError> {
 
 fn main() {
     let report: Report<AuthError> = verify(7)
-        .diag_context("request_id", "req-001")
-        .with_context("retry", 0)
-        .with_note("auth gate rejected")
+        .to_report()
+        .and_then_report(|r| {
+            r.with_ctx("request_id", "req-001")
+                .with_ctx("retry", 0)
+                .attach_note("auth gate rejected")
+        })
         .expect_err("demo");
+
+    // 也可以用 diag 作为两步链路的简写
+    let diag_report = verify(7).diag(|r| {
+        r.with_ctx("request_id", "req-001")
+            .with_ctx("retry", 0)
+            .attach_note("auth gate rejected")
+    });
 
     println!("{}", report);          // 紧凑输出
     println!("{}", report.pretty()); // 结构化输出
@@ -185,6 +196,11 @@ set! {
 
 `#[display(transparent)]` 与 `#[from]` 均支持，且都要求“恰好一个字段”。
 
+补充说明：
+- 枚举可见性遵循 `set!` 声明（`pub` / `pub(crate)` / 私有）
+- `set!` 顶层属性会保留在生成的 enum 上
+- 自动生成 `to_report()`、`source()`、以及 `diag()` 方法
+
 ## `union!`
 
 ```rust
@@ -230,6 +246,9 @@ union! {
 - 外部类型自动委托 `Display`
 - 支持 `as Alias` 覆盖默认变体名
 - 自动实现 `Error`，缺少 `Debug` 时自动补充
+- 自动生成构造器与 `*_report`（同 `set!`）
+- 支持 `#[diagweave(constructor_prefix = \"...\", report_path = \"...\")]`
+- 自动生成 `to_report()` 与 `source()` 方法
 
 ## 独立 `#[derive(Error)]`
 
@@ -249,56 +268,66 @@ pub enum MyError {
 }
 ```
 
-支持 `#[display("...")]`、`#[display(transparent)]`、`#[from]`、`#[source]`，并可直接接入 `diag()`。
+支持 `#[display("...")]`、`#[display(transparent)]`、`#[from]`、`#[source]`，并可直接接入 `to_report()`、`diag()`。 
 
 ## `Report` 与链式 API
 
 从 `Result<T, E>` 转换：
 
-- `diag()`
-- `diag_context(key, value)`
-- `diag_note(message)`
+- `to_report()`
+- `to_report_note(message)`
 
 常用链式增强（`Result<T, Report<E>>`）：
 
-- `with_context`、`with_note`、`with_payload`
-- `with_error_code`、`with_severity`、`with_category`、`with_retryable`
-- `with_display_cause`、`with_display_causes`、`with_source_error`
-- `context_lazy`、`note_lazy`
-- `wrap`、`wrap_with`
+- `and_then_report(|r| r.with_ctx(key, value).with_severity(...))` — 在错误路径上应用任意 `Report` 方法链
+
+`category`、`trace_state` 和 trace 事件名等高频字符串在捕获后会以 `StaticRefStr` 共享存储。
+附件 key、payload 名称、payload media type、全局上下文 key 等持久化字符串也统一使用 `StaticRefStr`。
+对应的设置接口也接受 `impl Into<StaticRefStr>`，可以直接传入共享字符串而不再额外拷贝。
+
+`map_err()` 是当前推荐的错误类型转换入口；是否继续累积原生 `source` 链由 `ReportOptions` 控制（debug 构建默认启用，release 构建默认关闭）。
 
 `Report<E>` 的读取接口：
 
 - `attachments()`、`metadata()`、`stack_trace()`
+- `context() -> &ContextMap`、`system() -> &ContextMap`
 - `error_code()`、`severity()`、`category()`、`retryable()`
 - `visit_causes(visit)` / `visit_causes_ext(options, visit)`
-- `visit_sources(visit)` / `visit_sources_ext(options, visit)`
-- `iter_sources()` / `iter_sources_ext(options)`
+- `visit_origin_sources(visit)` / `visit_origin_src_ext(options, visit)`
+- `visit_diag_sources(visit)` / `visit_diag_srcs_ext(options, visit)`
+- `iter_origin_sources()` / `iter_origin_src_ext(options)`
+- `iter_diag_sources()` / `iter_diag_srcs_ext(options)`
+- `options()` — 读取当前 `ReportOptions` 配置
+- `set_options(options: ReportOptions)` — 替换报告选项
+- `set_accumulate_src_chain(accumulate: bool)` — 快速开关 `map_err()` 的 source 链累积行为
 
 Note 附件读取：
 
-- `Attachment::as_note() -> Option<Cow<'_, str>>`（物化后的文本视图）
-- `Attachment::as_note_display() -> Option<&(dyn Display + 'static)>`（零分配显示视图）
+- `Attachment::as_note() -> Option<String>`（物化后的文本视图）
+- `Attachment::as_note_display() -> Option<&(dyn Display + Send + Sync + 'static)>`（零分配显示视图）
 
-`Result<T, Report<E>>` 的只读扩展（`ReportResultInspectExt`）：
+`Result<T, Report<E>>` 的只读扩展（`InspectReportExt`）：
 
 - `report_ref()`、`report_metadata()`、`report_attachments()`
 - `report_error_code()`、`report_severity()`、`report_category()`、`report_retryable()`
 
 `ErrorCode` 设计：
 
-- 双表示：`Integer(i64)` 或 `String(Cow<'static, str>)`
-- 写入路径：`with_error_code(x)` 接收 `impl Into<ErrorCode>`
+- 双表示：`Integer(i64)` 或 `String(StaticRefStr)`
+- 写入路径：`set_error_code(x)` 或 `with_error_code(x)` 接收 `impl Into<ErrorCode>`
+- `set_error_code(x)` 替换已有值；`with_error_code(x)` 仅当未设置时才设置（保留底层诊断信息）
 - 整型输入若可放入 `i64` 则存为 `Integer`；超范围自动降级为十进制字符串 `String`
 - 读取路径：支持 `TryFrom<ErrorCode>` / `TryFrom<&ErrorCode>` 到整型（`i8..i128`、`u8..u128`、`isize`、`usize`）
 - 字符串路径：同时支持 `Into<String>` 与 `to_string()`
 - 整型解析失败错误：`ErrorCodeIntError::{InvalidIntegerString, OutOfRange}`
 
+`AttachmentValue::String` 也使用 `StaticRefStr` 作为内部存储，重复包装同一份 report 时可以减少字符串拷贝。
+
 原因语义说明：
 
-- `with_display_cause` / `with_display_causes` 接收 `impl Display`，并追加到展示原因字符串链（用于渲染与 IR）。
-- `with_source_error` 用于显式追加错误对象到 source 链元数据。
-- 真正的错误传播链由 `with_source_error`、`wrap` / `wrap_with` 与 `Error::source()` 共同维护。
+- `with_display_cause` / `with_display_causes` 接收 `impl Display + Send + Sync + 'static`，并追加到展示原因字符串链（用于渲染与 IR）。
+- `with_diag_src_err` 用于显式追加错误对象到**诊断补充链**，参数要求 `impl Error + Send + Sync + 'static`。
+- 原生传播链由 `map_err()` 与 `Error::source()` 维护；`map_err()` 是否把旧内层错误继续串接到新错误的 `source` 链，由 `ReportOptions.accumulate_src_chain` 决定。
 
 全局上下文注入（`std`）：
 
@@ -309,18 +338,22 @@ Note 附件读取：
 
     let _ = register_global_injector(|| {
         let mut ctx = GlobalContext::default();
-        ctx.context.push(("request_id".into(), "req-001".into()));
+        ctx.context.insert("request_id", "req-001");
         Some(ctx)
     });
 }
 ```
+
+Trace 上下文使用已校验的 ID：
+- `TraceId::from_str("32位hex")` / `SpanId::from_str("16位hex")` / `ParentSpanId::from_str("16位hex")`
+- `unsafe { TraceId::new_unchecked(...) }` 可跳过校验
 
 ## 渲染与导出
 
 内置渲染器：
 
 ```rust
-use diagweave::render::{Compact, Pretty, ReportRenderOptions};
+use diagweave::render::{Compact, Pretty, ReportRenderOptions, StackTraceFilter};
 # use diagweave::prelude::set;
 # use diagweave::report::Report;
 # set! {
@@ -331,28 +364,69 @@ use diagweave::render::{Compact, Pretty, ReportRenderOptions};
 # }
 # let report = Report::new(AuthError::invalid_token());
 
-let _ = report.render(Compact).to_string();
+let _ = report.render(Compact::summary()).to_string();
 let _ = report.render(Pretty::new(ReportRenderOptions::default())).to_string();
 ```
+
+渲染预设：
+
+```rust
+use diagweave::render::ReportRenderOptions;
+
+let dev = ReportRenderOptions::developer();     // 完整详情，不过滤堆栈
+let prod = ReportRenderOptions::production();   // 显示 trace 事件详情，仅应用层帧
+let minimal = ReportRenderOptions::minimal();   // 仅核心信息，聚焦关键帧
+```
+
+堆栈过滤（`StackTraceFilter`）：
+
+- `All` — 显示所有帧（默认）
+- `AppOnly` — 过滤 `std::` / `core::` / `alloc::` / `backtrace::` 帧
+- `AppFocused` — 额外过滤 `diagweave::` 和诊断内部帧
+
+渲染预设：
+
+```rust
+use diagweave::render::ReportRenderOptions;
+
+let dev = ReportRenderOptions::developer();     // 完整详情，不过滤堆栈
+let prod = ReportRenderOptions::production();   // 显示 trace 事件详情，仅应用层帧
+let minimal = ReportRenderOptions::minimal();   // 仅核心信息，聚焦关键帧
+```
+
+堆栈过滤（`StackTraceFilter`）：
+
+- `All` — 显示所有帧（默认）
+- `AppOnly` — 过滤 `std::` / `core::` / `alloc::` / `backtrace::` 帧
+- `AppFocused` — 额外过滤 `diagweave::` 和诊断内部帧
 
 IR 与适配器：
 
 ```rust
 # use diagweave::prelude::set;
 # use diagweave::render::ReportRenderOptions;
-# use diagweave::report::Report;
+# use diagweave::report::{Severity, Report};
 # set! {
 #     AuthError = {
 #         #[display("invalid token")]
 #         InvalidToken,
 #     }
 # }
-# let report = Report::new(AuthError::invalid_token());
+# let report = Report::new(AuthError::invalid_token())
+#     .with_severity(Severity::Error);
 
-let ir = report.to_diagnostic_ir(ReportRenderOptions::default());
+let ir = report.to_diagnostic_ir();
+#[cfg(feature = "trace")]
 let tracing_fields = ir.to_tracing_fields();
-let otel = ir.to_otel_envelope();
+#[cfg(feature = "trace")]
+assert!(!tracing_fields.is_empty());
+#[cfg(feature = "otel")]
+let otel = ir.to_otel_envelope(diagweave::otel::OtelEnvelopeConfig::new());
 ```
+
+`DiagnosticIr` 以及 tracing/OTEL 适配器输出现在优先采用借用视图：能借用 report 内部字符串时使用 `RefStr<'a>`，只有在无法安全借用的投影值上才物化 owned 字符串。OTEL 导出被有意限制在 `DiagnosticIr<'_, HasSeverity>` 上，因此在生成 OTEL envelope 之前必须先显式设置 `severity`。
+
+`to_otel_envelope(config)` 接受 [`OtelEnvelopeConfig`](diagweave::otel::OtelEnvelopeConfig)，因此调用方既可以保留兼容输出，也可以切换到统一命名空间，例如 `diagweave.otel`。diagweave 自有 key 会按 config 加 namespace，而 `exception.type` 这类 OTEL 语义约定字段保持不变。
 
 `DiagnosticIr` 主要包含稳定的头部/元数据和聚合计数：
 
@@ -369,16 +443,16 @@ use diagweave::render::ReportRenderOptions;
 # }
 # impl std::error::Error for DemoError {}
 # let report = Report::new(DemoError)
-#     .attach("request_id", "req-42")
+#     .with_ctx("request_id", "req-42")
 #     .attach_printable("note")
 #     .attach_payload("body", AttachmentValue::from("ok"), Some("text/plain"))
 #     .with_display_cause("retry later")
-#     .with_source_error(std::io::Error::other("upstream"));
+#     .with_diag_src_err(std::io::Error::other("upstream"));
 
-let ir = report.to_diagnostic_ir(ReportRenderOptions::default());
+let ir = report.to_diagnostic_ir();
 
-let context_count = ir.context_count;
-let attachment_count = ir.attachment_count;
+let context_count = ir.context.len();
+let attachment_count = ir.attachments.len();
 println!("context_count={context_count}, attachment_count={attachment_count}");
 ```
 
@@ -408,27 +482,44 @@ JSON 输出固定包含 `schema_version: "v0.1.0"`：
 - Schema：`diagweave/schemas/report-v0.1.0.schema.json`
 - 文档：[`docs/report-json-schema-v0.1.0.md`](docs/report-json-schema-v0.1.0.md)
 
+### OTEL schema
+
+OpenTelemetry 输出的 envelope 单独记录在这里，需要 `otel` feature：
+
+- Schema：`diagweave/schemas/report-otel-v0.1.0.schema.json`
+- 文档：[`docs/report-otel-schema-v0.1.0.md`](docs/report-otel-schema-v0.1.0.md)
+
+OTEL 适配器会尽量保留树状结构：
+
+- 主 `exception` 记录的 `body` 保持为结构化值，而不是纯字符串
+- `exception.stacktrace` 以 `KvList` 形式输出
+- `diagnostic_bag.origin_source_errors / diagnostic_bag.diagnostic_source_errors` 都保留 `message`；`type` 仅在有值时输出
+- 空的 `trace` / `context` / `attachments` 部分默认会省略
+
+当你在 `OtelEnvelopeConfig` 里设置 namespace 时，`context`、`system`、`attachment`、`diagnostic_bag` 这些 diagweave 自有 key 会统一挂到这个 namespace 下。
+
 tracing 导出：
 
 ```rust
 #[cfg(feature = "tracing")]
 {
 #    use diagweave::prelude::set;
-#    use diagweave::report::Report;
+#    use diagweave::report::{Severity, Report};
 #    set! {
 #        AuthError = {
 #            #[display("invalid token")]
 #            InvalidToken,
 #        }
 #    }
-#    let report = Report::new(AuthError::invalid_token());
-    report.emit_tracing(diagweave::render::ReportRenderOptions::default());
+#    let report = Report::new(AuthError::invalid_token())
+#        .with_severity(Severity::Error);
+    report.emit_tracing();
 }
 ```
 
-## 来自 `diagweave-example` 的高级模式
+## 来自 `showcase` 的高级模式
 
-参考 [`diagweave-example/src/main.rs`](diagweave-example/src/main.rs) 可运行样例，包含：
+参考 [`examples/showcase/src/main.rs`](examples/showcase/src/main.rs) 可运行样例，包含：
 
 - `set!` 组合与 `union!` 边界
 - 自定义构造器前缀
@@ -441,7 +532,7 @@ tracing 导出：
 运行方式：
 
 ```bash
-cargo run -p diagweave-example
+cargo run -p showcase
 ```
 
 ## 与其他库的对比
@@ -460,14 +551,15 @@ cargo run -p diagweave-example
 
 - `std`（默认）：标准库能力
 - `json`：`Json` 渲染器（`serde` / `serde_json`）
-- `trace`：trace 数据模型（`ReportTrace` 等）与可插拔导出器 Trait（`TracingExporterTrait`、`emit_tracing_with`）
-- `tracing`：默认 `tracing` 生态集成（`TracingExporter`、`emit_tracing`）
+- `trace`：trace 数据模型（`ReportTrace` 等）、预校验后的发射 typestate（`PreparedTracingEmission`）与可插拔导出器 Trait（`TracingExporterTrait`）
+- `otel`：OTLP envelope 模型（`OtelEnvelope`、`OtelEvent`、`OtelValue`）、`OtelEnvelopeConfig`，以及 `DiagnosticIr<'_, HasSeverity>` 上的 `to_otel_envelope(config)` / `to_otel_envelope_default()`
+- `tracing`：默认 `tracing` 生态集成（`TracingExporter`、`prepare_tracing`、`emit_tracing`）
 
 ## 仓库结构
 
 - `diagweave/`：运行时 API 与宏 re-export
 - `diagweave-macros/`：过程宏实现
-- `diagweave-example/`：可运行最佳实践样例（`publish = false`）
+- `examples/showcase/`：可运行最佳实践样例（`publish = false`）
 
 ## 测试
 
@@ -480,7 +572,7 @@ bash scripts/test-feature-matrix.sh
 ```
 
 ```powershell
-powershell -File diagweave/scripts/test-feature-matrix.ps1
+powershell -File scripts/test-feature-matrix.ps1
 ```
 
 ## 适用场景
@@ -492,4 +584,8 @@ powershell -File diagweave/scripts/test-feature-matrix.ps1
 ## 许可证
 
 MIT 或 Apache-2.0 双许可证。
+
+
+
+
 
