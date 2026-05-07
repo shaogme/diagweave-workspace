@@ -220,7 +220,7 @@ where
     /// let report = Report::new(MyError).with_metadata(metadata);
     /// ```
     pub fn with_metadata(mut self, metadata: ReportMetadata<State>) -> Self {
-        self.metadata = metadata;
+        self.data.metadata = metadata;
         self
     }
 
@@ -242,7 +242,7 @@ where
     /// let report = Report::new(MyError).set_error_code("PAYMENT_FAILED");
     /// ```
     pub fn set_error_code(mut self, error_code: impl Into<ErrorCode>) -> Self {
-        self.metadata.set_error_code_mut(error_code);
+        self.data.metadata.set_error_code_mut(error_code);
         self
     }
 
@@ -269,7 +269,7 @@ where
     /// assert_eq!(report.error_code().unwrap().to_string(), "ERR-001".to_string());
     /// ```
     pub fn with_error_code(mut self, error_code: impl Into<ErrorCode>) -> Self {
-        self.metadata.with_error_code_mut(error_code);
+        self.data.metadata.with_error_code_mut(error_code);
         self
     }
 
@@ -291,7 +291,7 @@ where
     /// let report = Report::new(MyError).set_category("payment");
     /// ```
     pub fn set_category(mut self, category: impl Into<StaticRefStr>) -> Self {
-        self.metadata.set_category_mut(category);
+        self.data.metadata.set_category_mut(category);
         self
     }
 
@@ -316,7 +316,7 @@ where
     /// assert_eq!(report.category(), Some("payment"));
     /// ```
     pub fn with_category(mut self, category: impl Into<StaticRefStr>) -> Self {
-        self.metadata.with_category_mut(category);
+        self.data.metadata.with_category_mut(category);
         self
     }
 
@@ -338,7 +338,7 @@ where
     /// let report = Report::new(MyError).set_retryable(true);
     /// ```
     pub fn set_retryable(mut self, retryable: bool) -> Self {
-        self.metadata.set_retryable_mut(retryable);
+        self.data.metadata.set_retryable_mut(retryable);
         self
     }
 
@@ -363,7 +363,7 @@ where
     /// assert_eq!(report.retryable(), Some(true));
     /// ```
     pub fn with_retryable(mut self, retryable: bool) -> Self {
-        self.metadata.with_retryable_mut(retryable);
+        self.data.metadata.with_retryable_mut(retryable);
         self
     }
 
@@ -620,7 +620,7 @@ where
     /// let _report = report.set_options(ReportOptions::new().with_accumulate_src_chain(false));
     /// ```
     pub fn set_options(mut self, options: ReportOptions) -> Self {
-        self.options = options;
+        self.data.options = options;
         self
     }
 
@@ -645,7 +645,7 @@ where
     /// let _report = report.set_accumulate_src_chain(true);
     /// ```
     pub fn set_accumulate_src_chain(mut self, accumulate: bool) -> Self {
-        self.options = self.options.with_accumulate_src_chain(accumulate);
+        self.data.options = self.data.options.with_accumulate_src_chain(accumulate);
         self
     }
 }

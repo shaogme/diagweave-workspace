@@ -437,11 +437,6 @@ impl<const N: usize> HexId<N> {
         // SAFETY: HexId is always validated to be ASCII hex digits during construction.
         unsafe { core::str::from_utf8_unchecked(&self.0) }
     }
-
-    /// Returns the identifier as an owned String.
-    pub fn to_string(&self) -> String {
-        self.as_str().to_string()
-    }
 }
 
 impl<const N: usize> TryFrom<[u8; N]> for HexId<N> {
@@ -593,19 +588,19 @@ where
 {
     /// Returns the trace information associated with the report, if any.
     pub fn trace(&self) -> &ReportTrace {
-        &self.trace
+        &self.data.trace
     }
 
     /// Sets the trace information for the report, replacing any existing value.
     pub fn set_trace(mut self, trace: ReportTrace) -> Self {
-        self.trace = trace;
+        self.data.trace = trace;
         self
     }
 
     /// Sets the trace information only if not already present.
     pub fn with_trace(mut self, trace: ReportTrace) -> Self {
-        if self.trace.is_empty() {
-            self.trace = trace;
+        if self.trace().is_empty() {
+            self.data.trace = trace;
         }
         self
     }
@@ -729,7 +724,6 @@ where
     }
 
     fn trace_mut(&mut self) -> &mut ReportTrace {
-        &mut self.trace
+        &mut self.data.trace
     }
 }
-

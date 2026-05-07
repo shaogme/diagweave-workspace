@@ -6,7 +6,7 @@
 Used to define a series of structured error enums (Error Sets). It automatically implements composition logic between sets, `From` conversions, snake_case named constructors, report semantics, and enum helpers (`to_report()`/`source()`/`diag()`).
 
 ### Syntax Definition
-```text
+```rust, ignore
 set! {
     [#[diagweave(Meta)]]
     Ident = { [VariantDecls] } [ | OtherSet ]
@@ -64,7 +64,7 @@ set! {
 Used at architecture boundaries to combine unrelated error types, other error sets, or inline-defined variants.
 
 ### Syntax Definition
-```text
+```rust, ignore
 union! {
     [Attributes]
     [vis] enum Ident = Item1 | Item2 | ...
@@ -163,11 +163,15 @@ Hot path strings such as `category`, `trace_state`, trace event names, and stack
 
 ### Declaration and Definition
 
-The `Report` struct is a high-level diagnostic container with lazy allocation for auxiliary data. All four fields are **private** and cannot be directly accessed from outside the module.
+The `Report` struct is a high-level diagnostic container with lazy allocation for auxiliary data. The metadata and diagnostics are encapsulated in a boxed `ReportData` structure to keep the `Report` struct small. All fields are **private** and cannot be directly accessed from outside the module.
 
-```text
+```rust, ignore
 pub struct Report<E, State: SeverityState = MissingSeverity> {
     inner: E, // private - wrapped error value
+    data: Box<ReportData<State>>, // private - boxed auxiliary data
+}
+
+struct ReportData<State: SeverityState> {
     metadata: ReportMetadata<State>, // private - metadata including severity
     options: ReportOptions, // private - per-report configuration (lazy allocation internally)
     #[cfg(feature = "trace")]
@@ -178,11 +182,11 @@ pub struct Report<E, State: SeverityState = MissingSeverity> {
 
 **Key Points:**
 - `inner`: The wrapped error value (private)
-- `metadata`: Contains severity typestate and optional error code/category/retryable (private)
-- `report`: Per-report configuration for source chain accumulation and cause collection behavior (private)
-- `trace`: Trace context and events (private, only with `trace` feature). Uses lazy allocation via `Option<Box<ReportTraceInner>>` internally
-- `bag`: Lazily allocated diagnostic bag for attachments, display causes, source errors, context, and system context (private). Uses `Option<Box<DiagnosticBagInner>>` internally for lazy allocation
-- `ReportOptions` uses lazy allocation internally (`Option<Box<ReportOptionsInner>>`), only allocating when options are explicitly set
+- `data`: Boxed container for all auxiliary diagnostic data (private). This keeps the `Report` struct lightweight (only two pointers).
+- `metadata`: (Inside `ReportData`) Contains severity typestate and optional error code/category/retryable (private)
+- `options`: (Inside `ReportData`) Per-report configuration for source chain accumulation and cause collection behavior (private). Uses lazy allocation internally.
+- `trace`: (Inside `ReportData`) Trace context and events (private, only with `trace` feature). Uses lazy allocation via `Option<Box<ReportTraceInner>>` internally
+- `bag`: (Inside `ReportData`) Lazily allocated diagnostic bag for attachments, display causes, source errors, context, and system context (private). Uses `Option<Box<DiagnosticBagInner>>` internally for lazy allocation
 - Access to fields is provided through methods like `inner()`, `severity()`, `options()`, etc.
 
 ### Core Construction and Conversion

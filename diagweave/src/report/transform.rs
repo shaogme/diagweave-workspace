@@ -87,14 +87,15 @@ where
         E: Error + Send + Sync + 'static,
         Outer: Error + Send + Sync + 'static,
     {
-        let Self {
-            inner,
+        let Self { inner, data } = self;
+
+        let super::ReportData {
             metadata,
             options,
             #[cfg(feature = "trace")]
             trace,
             bag,
-        } = self;
+        } = *data;
 
         // Check if source chain accumulation is enabled for this report
         if options.resolve_accumulate_src_chain() {
@@ -109,22 +110,26 @@ where
 
             Report {
                 inner: outer,
-                metadata,
-                options,
-                #[cfg(feature = "trace")]
-                trace,
-                bag: new_bag,
+                data: Box::new(super::ReportData {
+                    metadata,
+                    options,
+                    #[cfg(feature = "trace")]
+                    trace,
+                    bag: new_bag,
+                }),
             }
         } else {
             // Simple transformation without source chain accumulation
             let outer = map(inner);
             Report {
                 inner: outer,
-                metadata,
-                options,
-                #[cfg(feature = "trace")]
-                trace,
-                bag,
+                data: Box::new(super::ReportData {
+                    metadata,
+                    options,
+                    #[cfg(feature = "trace")]
+                    trace,
+                    bag,
+                }),
             }
         }
     }

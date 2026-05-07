@@ -28,6 +28,12 @@
 //!     .with_ctx("host", "db.example.com")
 //!     .with_ctx("port", "5432");
 //! ```
+//!
+//! # Boxed Data
+//!
+//! `Report` encapsulates its metadata and diagnostics in a boxed `ReportData`
+//! structure. This keeps the primary `Report` struct small (only two pointers)
+//! and improves performance when reports are moved or passed around.
 
 #[path = "report/accessors.rs"]
 mod accessors;
@@ -112,6 +118,10 @@ use types::{DiagnosticBag, append_source_chain, limit_depth_source_chain};
 /// ```
 pub struct Report<E, State: SeverityState = MissingSeverity> {
     inner: E,
+    data: Box<ReportData<State>>,
+}
+
+struct ReportData<State: SeverityState> {
     metadata: ReportMetadata<State>,
     options: ReportOptions,
     #[cfg(feature = "trace")]
@@ -125,17 +135,17 @@ where
 {
     /// Returns a reference to the diagnostics bag.
     fn diagnostics(&self) -> &DiagnosticBag {
-        &self.bag
+        &self.data.bag
     }
 
     /// Returns a mutable reference to the diagnostics bag.
     fn diagnostics_mut(&mut self) -> &mut DiagnosticBag {
-        &mut self.bag
+        &mut self.data.bag
     }
 
     /// Returns a reference to the metadata.
     fn metadata_ref(&self) -> &ReportMetadata<State> {
-        &self.metadata
+        &self.data.metadata
     }
 }
 
@@ -207,21 +217,23 @@ impl<E> Report<E, MissingSeverity> {
     ///     .set_severity(Severity::Error);
     /// ```
     pub fn set_severity(self, severity: Severity) -> Report<E, HasSeverity> {
-        let Self {
-            inner,
+        let Self { inner, data } = self;
+        let ReportData {
             metadata,
             options,
             #[cfg(feature = "trace")]
             trace,
             bag,
-        } = self;
+        } = *data;
         Report {
             inner,
-            metadata: metadata.set_severity(severity),
-            options,
-            #[cfg(feature = "trace")]
-            trace,
-            bag,
+            data: Box::new(ReportData {
+                metadata: metadata.set_severity(severity),
+                options,
+                #[cfg(feature = "trace")]
+                trace,
+                bag,
+            }),
         }
     }
 }
@@ -248,21 +260,23 @@ impl<E> Report<E, HasSeverity> {
     /// assert_eq!(report.severity(), Some(Severity::Error));
     /// ```
     pub fn set_severity(self, severity: Severity) -> Report<E, HasSeverity> {
-        let Self {
-            inner,
+        let Self { inner, data } = self;
+        let ReportData {
             metadata,
             options,
             #[cfg(feature = "trace")]
             trace,
             bag,
-        } = self;
+        } = *data;
         Report {
             inner,
-            metadata: metadata.set_severity(severity),
-            options,
-            #[cfg(feature = "trace")]
-            trace,
-            bag,
+            data: Box::new(ReportData {
+                metadata: metadata.set_severity(severity),
+                options,
+                #[cfg(feature = "trace")]
+                trace,
+                bag,
+            }),
         }
     }
 }

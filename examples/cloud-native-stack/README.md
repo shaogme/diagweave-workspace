@@ -14,7 +14,7 @@ The current goal is not to print a serialized JSON blob. The goal is to preserve
 
 The example follows this path:
 
-```text
+```rust, ignore
 Report
   -> DiagnosticIr
   -> OtelEnvelope
@@ -23,7 +23,7 @@ Report
 
 At the same time, each scenario is wrapped in a `tracing` span and bridged into OpenTelemetry:
 
-```text
+```rust, ignore
 tracing span
   -> tracing-opentelemetry
   -> OpenTelemetry trace export

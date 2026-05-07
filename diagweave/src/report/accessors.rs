@@ -348,7 +348,7 @@ where
     /// assert_eq!(report.error_code().unwrap().to_string(), "ERR-001".to_string());
     /// ```
     pub fn error_code(&self) -> Option<&super::ErrorCode> {
-        self.metadata.error_code()
+        self.data.metadata.error_code()
     }
 
     /// Returns the severity from report typestate.
@@ -368,12 +368,12 @@ where
     /// assert_eq!(report.severity(), Some(Severity::Error));
     /// ```
     pub fn severity(&self) -> Option<super::Severity> {
-        self.metadata.severity()
+        self.data.metadata.severity()
     }
 
     /// Returns the severity state from report typestate.
     pub(crate) fn severity_state(&self) -> State {
-        self.metadata.severity_state()
+        self.data.metadata.severity_state()
     }
 
     /// Returns the category from report metadata, if present.
@@ -393,7 +393,7 @@ where
     /// assert_eq!(report.category(), Some("payment"));
     /// ```
     pub fn category(&self) -> Option<&str> {
-        self.metadata.category()
+        self.data.metadata.category()
     }
 
     /// Returns whether the report is marked retryable, if present.
@@ -413,7 +413,7 @@ where
     /// assert_eq!(report.retryable(), Some(true));
     /// ```
     pub fn retryable(&self) -> Option<bool> {
-        self.metadata.retryable()
+        self.data.metadata.retryable()
     }
 
     /// Returns the stack trace associated with the report, if any.
@@ -459,7 +459,7 @@ where
     /// let options = report.options();
     /// ```
     pub fn options(&self) -> &ReportOptions {
-        &self.options
+        &self.data.options
     }
 
     /// Visits display causes using default collection options.

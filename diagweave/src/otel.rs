@@ -323,7 +323,7 @@ impl<'a> DiagnosticIr<'a, HasSeverity> {
         let trace_context = self.otel_trace_context();
         let mut records = Vec::with_capacity(1);
 
-        records.push(self.otel_report_ev(&config, trace_ids.clone(), trace_context.clone()));
+        records.push(self.otel_report_ev(&config, trace_ids, trace_context.clone()));
 
         #[cfg(feature = "trace")]
         self.otel_trace_ev(&config, &mut records, trace_ids, trace_context);
@@ -432,8 +432,8 @@ impl<'a> DiagnosticIr<'a, HasSeverity> {
     fn otel_trace_ids(&'a self) -> (Option<TraceId>, Option<SpanId>, Option<bool>) {
         let ctx = self.trace.context();
         (
-            ctx.and_then(|c| c.trace_id.clone()),
-            ctx.and_then(|c| c.span_id.clone()),
+            ctx.and_then(|c| c.trace_id),
+            ctx.and_then(|c| c.span_id),
             ctx.and_then(|c| c.sampled),
         )
     }
@@ -446,7 +446,7 @@ impl<'a> DiagnosticIr<'a, HasSeverity> {
     #[cfg(feature = "trace")]
     fn otel_trace_context(&'a self) -> Option<OtelTraceContext> {
         let context = self.trace.context()?;
-        let parent_span_id = context.parent_span_id.clone();
+        let parent_span_id = context.parent_span_id;
         let trace_state = context.trace_state.clone();
         if parent_span_id.is_none() && trace_state.is_none() {
             return None;
@@ -572,8 +572,8 @@ impl<'a> DiagnosticIr<'a, HasSeverity> {
                 observed_timestamp_unix_nano: None,
                 severity_text,
                 severity_number,
-                trace_id: trace_ids.0.clone(),
-                span_id: trace_ids.1.clone(),
+                trace_id: trace_ids.0,
+                span_id: trace_ids.1,
                 trace_sampled: trace_ids.2,
                 trace_context: trace_context.clone(),
                 attributes,

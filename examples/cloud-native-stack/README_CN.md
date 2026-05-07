@@ -14,7 +14,7 @@
 
 示例的数据流如下：
 
-```text
+```rust, ignore
 Report
   -> DiagnosticIr
   -> OtelEnvelope
@@ -23,7 +23,7 @@ Report
 
 同时，每个场景都会包裹在一个 `tracing` span 中，并通过 `tracing-opentelemetry` 接入 OpenTelemetry：
 
-```text
+```rust, ignore
 tracing span
   -> tracing-opentelemetry
   -> OpenTelemetry trace export

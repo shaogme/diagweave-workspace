@@ -70,7 +70,7 @@ where
         {
             f.debug_struct("Report")
                 .field("inner", self.inner())
-                .field("bag", &self.bag)
+                .field("bag", &self.data.bag)
                 .finish()
         }
     }

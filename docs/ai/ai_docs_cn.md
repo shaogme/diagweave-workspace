@@ -6,7 +6,7 @@
 用于定义一系列结构化的错误枚举（Error Set），自动实现集合间的组合逻辑、`From` 转换、蛇形命名构造器、报告语义，以及枚举辅助方法（`to_report()`/`source()`/`diag()`）。
 
 ### 语法定义
-```text
+```rust, ignore
 set! {
     [#[diagweave(Meta)]]
     Ident = { [VariantDecls] } [ | OtherSet ]
@@ -64,7 +64,7 @@ set! {
 用于在架构边界组合多个不相关的错误类型、其他错误集合或内联定义的变体。
 
 ### 语法定义
-```text
+```rust, ignore
 union! {
     [Attributes]
     [vis] enum Ident = Item1 | Item2 | ...
@@ -163,11 +163,15 @@ enum FileError {
 
 ### 声明定义
 
-`Report` 结构体是一个高级诊断容器，对辅助数据采用延迟分配策略。所有字段都是**私有的**，无法从模块外部直接访问。
+`Report` 结构体是一个高级诊断容器，对辅助数据采用延迟分配策略。元数据和诊断信息封装在一个装箱的 `ReportData` 结构中，以保持 `Report` 结构体本身足够小。所有字段都是**私有的**，无法从模块外部直接访问。
 
-```text
+```rust, ignore
 pub struct Report<E, State: SeverityState = MissingSeverity> {
     inner: E, // 私有 - 被包装的错误值
+    data: Box<ReportData<State>>, // 私有 - 装箱的辅助数据
+}
+
+struct ReportData<State: SeverityState> {
     metadata: ReportMetadata<State>, // 私有 - 包含严重性的元数据
     options: ReportOptions, // 私有 - 按报告粒度的配置（内部采用延迟分配）
     #[cfg(feature = "trace")]
@@ -178,11 +182,11 @@ pub struct Report<E, State: SeverityState = MissingSeverity> {
 
 **关键点：**
 - `inner`：被包装的错误值（私有）
-- `metadata`：包含严重性类型状态和可选的 error_code/category/retryable（私有）
-- `report`：按报告粒度的配置，用于控制源链累积和原因收集行为（私有）
-- `trace`：追踪上下文和事件（私有，仅 `trace` feature 下可用）。内部使用 `Option<Box<ReportTraceInner>>` 实现延迟分配
-- `bag`：延迟分配的诊断包，用于附件、展示原因、源错误、上下文和系统上下文（私有）。内部使用 `Option<Box<DiagnosticBagInner>>` 实现延迟分配
-- `ReportOptions` 内部采用延迟分配（`Option<Box<ReportOptionsInner>>`），仅在显式设置选项时才分配堆内存
+- `data`：装箱的所有辅助 diagnostic 数据容器（私有）。这使得 `Report` 结构体非常轻量（仅包含两个指针）。
+- `metadata`：（位于 `ReportData` 内部）包含严重性类型状态和可选的 error_code/category/retryable（私有）
+- `options`：（位于 `ReportData` 内部）按报告粒度的配置，用于控制源链累积和原因收集行为（私有）。内部采用延迟分配策略。
+- `trace`：（位于 `ReportData` 内部）追踪上下文和事件（私有，仅 `trace` feature 下可用）。内部使用 `Option<Box<ReportTraceInner>>` 实现延迟分配
+- `bag`：（位于 `ReportData` 内部）延迟分配的诊断包，用于附件、展示原因、源错误、上下文和系统上下文（私有）。内部使用 `Option<Box<DiagnosticBagInner>>` 实现延迟分配
 - 字段访问通过方法提供，如 `inner()`、`severity()`、`options()` 等
 
 ### 核心构造与转换

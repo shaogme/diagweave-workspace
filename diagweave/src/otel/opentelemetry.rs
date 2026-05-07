@@ -120,7 +120,9 @@ where
         let trace_id = opentelemetry::TraceId::from_hex(trace_id.as_ref()).ok();
         let span_id = opentelemetry::SpanId::from_hex(span_id.as_ref()).ok();
         if let (Some(trace_id), Some(span_id)) = (trace_id, span_id) {
-            let flags = event.trace_sampled.map(|sampled| TraceFlags::new(if sampled { 1 } else { 0 }));
+            let flags = event
+                .trace_sampled
+                .map(|sampled| TraceFlags::new(if sampled { 1 } else { 0 }));
             record.set_trace_context(trace_id, span_id, flags);
         }
     }

@@ -108,7 +108,7 @@ where
     /// Returns all entries sorted by key.
     pub fn sorted_entries(&self) -> Vec<(&K, &V)> {
         let mut entries: Vec<_> = self.0.iter().collect();
-        entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+        entries.sort_by_key(|(left, _)| *left);
         entries
     }
 

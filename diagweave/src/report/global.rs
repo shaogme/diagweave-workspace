@@ -190,30 +190,30 @@ where
         // Handle error metadata
         if let Some(error) = global.error {
             if let Some(error_code) = error.error_code {
-                self.metadata.with_error_code_mut(error_code);
+                self.data.metadata.with_error_code_mut(error_code);
             }
             if let Some(category) = error.category {
-                self.metadata.with_category_mut(category);
+                self.data.metadata.with_category_mut(category);
             }
             if let Some(retryable) = error.retryable {
-                self.metadata.with_retryable_mut(retryable);
+                self.data.metadata.with_retryable_mut(retryable);
             }
         }
 
         // Handle system and context
         if !global.system.is_empty() {
-            *self.bag.system_mut() = global.system;
+            *self.data.bag.system_mut() = global.system;
         }
         if !global.context.is_empty() {
             for (key, value) in &global.context {
-                self.bag.insert_context(key.clone(), value.clone());
+                self.data.bag.insert_context(key.clone(), value.clone());
             }
         }
 
         #[cfg(feature = "trace")]
         if let Some(global_trace) = global.trace {
-            let trace = core::mem::take(&mut self.trace);
-            self.trace = trace
+            let trace = core::mem::take(&mut self.data.trace);
+            self.data.trace = trace
                 .set_trace_id_opt(global_trace.trace_id)
                 .set_span_id_opt(global_trace.span_id)
                 .set_parent_span_id_opt(global_trace.parent_span_id)
@@ -258,11 +258,13 @@ impl<E> Report<E, crate::report::MissingSeverity> {
     pub fn new(inner: E) -> Self {
         let report = Self {
             inner,
-            metadata: ReportMetadata::new(),
-            options: ReportOptions::new(),
-            #[cfg(feature = "trace")]
-            trace: ReportTrace::default(),
-            bag: super::DiagnosticBag::new(),
+            data: Box::new(super::ReportData {
+                metadata: ReportMetadata::new(),
+                options: ReportOptions::new(),
+                #[cfg(feature = "trace")]
+                trace: ReportTrace::default(),
+                bag: super::DiagnosticBag::new(),
+            }),
         };
         #[cfg(feature = "std")]
         return report.apply_global_context();
@@ -296,21 +298,23 @@ impl<E> Report<E, crate::report::MissingSeverity> {
     /// assert_eq!(report.severity(), Some(Severity::Error));
     /// ```
     pub fn with_severity(self, severity: super::Severity) -> Report<E, super::HasSeverity> {
-        let Self {
-            inner,
+        let Self { inner, data } = self;
+        let super::ReportData {
             metadata,
             options,
             #[cfg(feature = "trace")]
             trace,
             bag,
-        } = self;
+        } = *data;
         Report {
             inner,
-            metadata: metadata.set_severity(severity),
-            options,
-            #[cfg(feature = "trace")]
-            trace,
-            bag,
+            data: Box::new(super::ReportData {
+                metadata: metadata.set_severity(severity),
+                options,
+                #[cfg(feature = "trace")]
+                trace,
+                bag,
+            }),
         }
     }
 }
