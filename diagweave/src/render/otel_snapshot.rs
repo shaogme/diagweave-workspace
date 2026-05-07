@@ -1,4 +1,5 @@
 use crate::otel::{OtelAttribute, OtelEnvelope, OtelEvent, OtelValue};
+use alloc::vec::Vec;
 
 pub(crate) fn normalize_otel_envelope(envelope: &mut OtelEnvelope<'_>) {
     for record in &mut envelope.records {
