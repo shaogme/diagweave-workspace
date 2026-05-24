@@ -18,19 +18,19 @@ pub use ref_str::{RefStr, StaticRefStr};
 
 #[cfg(doctest)]
 #[doc = include_str!("../../README.md")]
-pub struct ReadmeDoctests;
+mod readme_doctests;
 
 #[cfg(doctest)]
 #[doc = include_str!("../../README_CN.md")]
-pub struct ReadmeCnDoctests;
+mod readme_cn_doctests;
 
 #[cfg(doctest)]
 #[doc = include_str!("../../docs/ai/ai_docs.md")]
-pub struct AiDoctests;
+mod ai_doctests;
 
 #[cfg(doctest)]
 #[doc = include_str!("../../docs/ai/ai_docs_cn.md")]
-pub struct AiCnDoctests;
+mod ai_cn_doctests;
 
 #[cfg(any(feature = "otel", feature = "opentelemetry"))]
 pub mod otel {
