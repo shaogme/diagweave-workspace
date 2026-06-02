@@ -1,3 +1,4 @@
+use crate::shared::display::render_display_template;
 use quote::quote;
 use syn::{Attribute, Error, Fields, Ident, LitStr, Result, spanned::Spanned};
 
@@ -88,88 +89,5 @@ pub(crate) fn replacements(
             .map(|(idx, ident)| (idx.to_string(), quote! { #ident }))
             .collect()),
         _ => Err(Error::new(fields.span(), "internal binding mismatch")),
-    }
-}
-
-pub(crate) fn render_display_template(
-    template: &LitStr,
-    replacements: &[(String, proc_macro2::TokenStream)],
-) -> Result<(String, Vec<proc_macro2::TokenStream>)> {
-    let mut output = String::new();
-    let mut ordered = Vec::new();
-    let raw = template.value();
-    let chars: Vec<char> = raw.chars().collect();
-    let mut i = 0usize;
-    while i < chars.len() {
-        match chars[i] {
-            '{' => {
-                let (part, new_i) =
-                    parse_brace_open(template, &chars, i, replacements, &mut ordered)?;
-                output.push_str(&part);
-                i = new_i;
-            }
-            '}' => {
-                let (part, new_i) = parse_brace_close(template, &chars, i)?;
-                output.push_str(&part);
-                i = new_i;
-            }
-            ch => {
-                output.push(ch);
-                i += 1;
-            }
-        }
-    }
-    Ok((output, ordered))
-}
-
-fn parse_brace_open(
-    template: &LitStr,
-    chars: &[char],
-    i: usize,
-    replacements: &[(String, proc_macro2::TokenStream)],
-    ordered: &mut Vec<proc_macro2::TokenStream>,
-) -> Result<(String, usize)> {
-    if i + 1 < chars.len() && chars[i + 1] == '{' {
-        return Ok(("{{".to_string(), i + 2));
-    }
-    let start = i + 1;
-    let mut end = start;
-    while end < chars.len() && chars[end] != '}' {
-        end += 1;
-    }
-    if end >= chars.len() {
-        return Err(Error::new_spanned(
-            template,
-            "unclosed `{` in #[display(...)] template",
-        ));
-    }
-    let key: String = chars[start..end].iter().collect();
-    if key.is_empty() {
-        return Err(Error::new_spanned(
-            template,
-            "empty `{}` placeholder is not allowed in #[display(...)] template",
-        ));
-    }
-    if let Some((_, token)) = replacements.iter().find(|(name, _)| name == &key) {
-        ordered.push(token.clone());
-        Ok(("{}".to_string(), end + 1))
-    } else {
-        Err(Error::new_spanned(
-            template,
-            format!(
-                "unknown placeholder `{{{key}}}` in #[display(...)] template; placeholders come from named fields or zero-based tuple indices"
-            ),
-        ))
-    }
-}
-
-fn parse_brace_close(template: &LitStr, chars: &[char], i: usize) -> Result<(String, usize)> {
-    if i + 1 < chars.len() && chars[i + 1] == '}' {
-        Ok(("}}".to_string(), i + 2))
-    } else {
-        Err(Error::new_spanned(
-            template,
-            "unmatched `}` in #[display(...)] template",
-        ))
     }
 }

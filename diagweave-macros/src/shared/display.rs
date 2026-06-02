@@ -150,7 +150,7 @@ fn display_expr(
     }
 }
 
-fn render_display_template(
+pub(crate) fn render_display_template(
     template: &LitStr,
     replacements: &[(String, TokenStream)],
 ) -> Result<(String, Vec<TokenStream>)> {
@@ -213,12 +213,22 @@ fn parse_brace_open(
         ordered.push(token.clone());
         Ok(("{}".to_string(), end + 1))
     } else {
-        Err(Error::new_spanned(
-            template,
-            format!(
-                "unknown placeholder `{{{key}}}` in #[display(...)] template; placeholders come from named fields or zero-based tuple indices"
-            ),
-        ))
+        let (ident_part, format_part) = if let Some(colon_pos) = key.find(':') {
+            (&key[..colon_pos], &key[colon_pos..])
+        } else {
+            (key.as_str(), "")
+        };
+        if let Some((_, token)) = replacements.iter().find(|(name, _)| name == ident_part) {
+            ordered.push(token.clone());
+            Ok((format!("{{{}}}", format_part), end + 1))
+        } else {
+            Err(Error::new_spanned(
+                template,
+                format!(
+                    "unknown placeholder `{{{ident_part}}}` in #[display(...)] template; placeholders come from named fields or zero-based tuple indices"
+                ),
+            ))
+        }
     }
 }
 

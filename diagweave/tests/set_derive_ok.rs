@@ -15,6 +15,15 @@ set! {
     SetC = {
         Variant3,
     }
+
+    #[derive(Clone, Debug, PartialEq)]
+    SetD = {
+        #[display("{step} 失败（退出码: {code:?}）")]
+        SetupFailed {
+            step: String,
+            code: Option<i32>,
+        },
+    }
 }
 
 #[test]
@@ -36,6 +45,15 @@ fn test_set_derives_implicit_debug() {
     let c = SetC::Variant3;
     let dbg = format!("{:?}", c); // Debug works (it's always added)
     assert!(dbg.contains("Variant3"));
+}
+
+#[test]
+fn test_set_display_with_format_specifier() {
+    let d = SetD::SetupFailed {
+        step: "运行".to_string(),
+        code: Some(2),
+    };
+    assert_eq!(d.to_string(), "运行 失败（退出码: Some(2)）");
 }
 
 #[test]

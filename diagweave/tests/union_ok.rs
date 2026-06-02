@@ -57,6 +57,8 @@ union! {
         Simple(SimpleError),
         #[display("Escaped braces {{db}} code={0}")]
         TupleEscaped(u32),
+        #[display("Internal error: {message:?}")]
+        Internal { message: String },
     }
 }
 
@@ -118,10 +120,12 @@ fn union_display_works_for_wrapped_and_inline_variants() {
     let inline = ApiError::rate_limited(12);
     let transparent = ApiError::transparent(42);
     let escaped = ApiError::TupleEscaped(88);
+    let internal = ApiError::internal("something broke".to_string());
     assert_eq!(wrapped.to_string(), "auth token invalid");
     assert_eq!(inline.to_string(), "Rate limited for 12s");
     assert_eq!(transparent.to_string(), "42");
     assert_eq!(escaped.to_string(), "Escaped braces {db} code=88");
+    assert_eq!(internal.to_string(), "Internal error: \"something broke\"");
     let dbg = format!("{:?}", inline);
     assert!(dbg.contains("RateLimited"));
 }

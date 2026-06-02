@@ -8,6 +8,11 @@ enum DemoError {
     Io(#[from] std::io::Error),
     #[display("upstream failed: {0}")]
     Upstream(#[source] std::io::Error),
+    #[display("{step} 失败（退出码: {code:?}）")]
+    SetupFailed {
+        step: String,
+        code: Option<i32>,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -23,6 +28,12 @@ fn derive_error_template_and_transparent_display_work() {
 
     let io: DemoError = std::io::Error::other("socket closed").into();
     assert_eq!(io.to_string(), "socket closed");
+
+    let setup_failed = DemoError::SetupFailed {
+        step: "编译".to_string(),
+        code: Some(1),
+    };
+    assert_eq!(setup_failed.to_string(), "编译 失败（退出码: Some(1)）");
 }
 
 #[test]
