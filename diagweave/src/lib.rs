@@ -18,19 +18,27 @@ pub use ref_str::{RefStr, StaticRefStr};
 
 #[cfg(doctest)]
 #[doc = include_str!("../../README.md")]
-mod readme_doctests;
+mod readme_doctests {}
 
 #[cfg(doctest)]
 #[doc = include_str!("../../README_CN.md")]
-mod readme_cn_doctests;
+mod readme_cn_doctests {}
 
 #[cfg(doctest)]
-#[doc = include_str!("../../docs/ai/ai_docs.md")]
-mod ai_doctests;
+#[doc = include_str!("../../docs/ai/en/error_definition_and_conversion.md")]
+mod ai_en_error_def_doctests {}
 
 #[cfg(doctest)]
-#[doc = include_str!("../../docs/ai/ai_docs_cn.md")]
-mod ai_cn_doctests;
+#[doc = include_str!("../../docs/ai/en/diagnostic_report_container.md")]
+mod ai_en_report_container_doctests {}
+
+#[cfg(doctest)]
+#[doc = include_str!("../../docs/ai/cn/error_definition_and_conversion.md")]
+mod ai_cn_error_def_doctests {}
+
+#[cfg(doctest)]
+#[doc = include_str!("../../docs/ai/cn/diagnostic_report_container.md")]
+mod ai_cn_report_container_doctests {}
 
 #[cfg(any(feature = "otel", feature = "opentelemetry"))]
 pub mod otel {
