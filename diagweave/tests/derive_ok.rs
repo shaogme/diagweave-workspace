@@ -83,3 +83,29 @@ fn test_generic_from_conversion_for_report() {
         _ => panic!("unexpected inner error from propagation"),
     }
 }
+
+#[test]
+fn test_res_to_report_trans() {
+    use diagweave::prelude::*;
+    let res: Result<(), DemoError> = Err(DemoError::NotFound { id: 101 });
+    let report_res: Result<(), Report<AppError>> = res.to_report_trans::<AppError>();
+
+    assert!(report_res.is_err());
+    let report = report_res.unwrap_err();
+    match report.inner() {
+        AppError::Net(DemoError::NotFound { id }) => assert_eq!(*id, 101),
+        _ => panic!("unexpected inner error"),
+    }
+}
+
+#[test]
+fn test_err_to_report_trans() {
+    use diagweave::prelude::*;
+    let err = DemoError::NotFound { id: 101 };
+    let report: Report<AppError> = err.to_report_trans();
+
+    match report.inner() {
+        AppError::Net(DemoError::NotFound { id }) => assert_eq!(*id, 101),
+        _ => panic!("unexpected inner error"),
+    }
+}

@@ -1,3 +1,4 @@
+use core::error::Error;
 use core::fmt::Display;
 
 use super::{
@@ -19,6 +20,17 @@ pub trait Diagnostic {
     type Error;
 
     fn to_report(self) -> Result<Self::Value, Report<Self::Error>>;
+
+    /// Converts the inner error to a different type via `Into` while wrapping in a `Report`.
+    fn to_report_trans<NewE>(self) -> Result<Self::Value, Report<NewE>>
+    where
+        Self: Sized,
+        Self::Error: Into<NewE>,
+        Self::Error: Error + Send + Sync + 'static,
+        NewE: Error + Send + Sync + 'static,
+    {
+        self.to_report().map_err(|r| r.map_err(|e| e.into()))
+    }
 
     /// Convenience: perform a transformation on the error path in a single step.
     ///

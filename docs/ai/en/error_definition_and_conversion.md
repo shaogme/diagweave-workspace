@@ -53,6 +53,7 @@ set! {
 | `AuthError::user_not_found(id: u64)` | `AuthError` | Snake_case constructor |
 | `AuthError::user_not_found_report(id: u64)` | `Report<AuthError>` | Returns a report object containing the current error |
 | `AuthError::to_report(self)` | `Report<AuthError>` | Converts error instance into a report |
+| `AuthError::to_report_trans::<NewE>(self)` | `Report<NewE>` | Conveniently converts error into a target-type diagnostic report (requires `Self: Into<NewE>`) |
 | `AuthError::source(&self)` | `Option<&dyn Error>` | Access to the underlying error source |
 | `From<AuthError> for ServiceError` | `ServiceError` | Automatic mapping from subset to superset |
 
@@ -111,7 +112,7 @@ union! {
 - **From Injection**: Injects `impl From<T> for Union` for every external member type.
 - **Constructors**: Generates snake_case constructors and `*_report` helpers for inline and external variants.
 - **Options**: Supports `#[diagweave(constructor_prefix = "...", report_path = "...")]` on the union enum.
-- **Helpers**: Generates `to_report()`, `source()`, and `diag()` on the union enum.
+- **Helpers**: Generates `to_report()`, `to_report_trans::<NewE>()`, `source()`, and `diag()` on the union enum.
 
 ---
 
@@ -132,6 +133,7 @@ Any type deriving `Error` automatically gains the following helper methods and t
 | Declaration | Return Type/Trait | Description |
 | :--- | :--- | :--- |
 | `pub fn to_report(self)` | `Report<Self>` | Converts to a basic report object |
+| `pub fn to_report_trans::<NewE>(self)` | `Report<NewE>` | Converts to target type report (requires `Self: Into<NewE>`) |
 | `pub fn source(&self)` | `Option<&dyn Error>` | Convenient access to the underlying error source |
 | `impl DiagnosticError` | `DiagnosticError` | Marks this client error type for automatic conversion to any compatible `Report<NewE>` via the `From` trait |
 
@@ -168,6 +170,7 @@ Provides pipelines for seamless diagnostic info injection on error paths by impl
 #### 1. `Diagnostic` (on `Result<T, E>`)
 - `to_report()`: Lifts `Err(E)` to `Err(Report<E>)`.
 - `to_report_note(msg)`: Lifts and injects note.
+- `to_report_trans<NewE>()`: Lifts and converts the inner error to `NewE` (requires `E: Into<NewE>`).
 - `diag(...)`: Short-hand for chaining a transformation on the error path. Generic signature:
   `diag<E2, State2>(self, f: impl FnOnce(Report<E>) -> Report<E2, State2>) -> Result<T, Report<E2, State2>>`.
   The closure receives a `Report<E>` and returns a `Report<E2, State2>`. When only adding metadata,

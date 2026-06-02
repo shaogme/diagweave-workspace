@@ -5,7 +5,7 @@
 ### Overview
 The core diagnostic container, wrapping the original error `E` and holding optional "cold data" (metadata, attachments, display-cause chain, trace info) plus per-report `ReportOptions`. Uses a lazy allocation strategy, only allocating heap memory when auxiliary information is added.
 Hot path strings such as `category`, `trace_state`, trace event names, and stack trace raw text are stored with shared `StaticRefStr` handles once captured.
-`map_err()` is now the recommended entry point for error type transformation; whether it continues to accumulate the origin `source` chain is controlled by `ReportOptions`.
+`map_err()` is now the recommended entry point for error type transformation; whether it continues to accumulate the origin `source` chain is controlled by `ReportOptions`. Additionally, you can use `to_report_trans()` to promote and directly transform the error inside a Result, or call `to_report_into()` directly on macro-generated client error types to convert them into a target-type report.
 
 ### Declaration and Definition
 

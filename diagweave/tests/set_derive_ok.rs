@@ -79,3 +79,16 @@ fn test_generic_from_conversion_for_set_errors() {
         _ => panic!("unexpected inner error in set report"),
     }
 }
+
+#[test]
+fn test_set_to_report_trans() {
+    use diagweave::report::Report;
+
+    let err_a = SetA::Variant1;
+    let report: Report<SetB> = err_a.to_report_trans();
+
+    match report.inner() {
+        SetB::Variant1 => {}
+        _ => panic!("unexpected inner error in set report"),
+    }
+}

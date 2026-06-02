@@ -6,6 +6,13 @@ pub(crate) fn enum_impl_helpers(enum_ident: &Ident, source_arms: &[TokenStream])
     quote! {
         impl #enum_ident {
             pub fn to_report(self) -> ::diagweave::report::Report<Self> { ::diagweave::report::Report::new(self) }
+            pub fn to_report_trans<NewE>(self) -> ::diagweave::report::Report<NewE>
+            where
+                Self: Into<NewE>,
+                NewE: ::core::error::Error + Send + Sync + 'static,
+            {
+                ::diagweave::report::Report::new(self.into())
+            }
             /// Convenience: allow direct `.diag(...)` calls on client error types.
             /// This is a generic variant that allows transforming both the error type
             /// and the state type. When only adding metadata, no explicit type

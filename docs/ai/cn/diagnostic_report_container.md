@@ -5,7 +5,7 @@
 ### 概览
 核心诊断容器，封装原始错误 `E`并持有可选的“冷数据”（元数据、附件、展示原因链、追踪信息）以及按报告粒度生效的 `ReportOptions`。采用延迟分配策略，仅在添加辅助信息时才分配堆内存。
 `category`、`trace_state`、trace 事件名和 stack trace 原始文本等高频字符串在捕获后会以共享 `StaticRefStr` 持有。
-`map_err()` 是当前推荐的错误类型转换入口；其是否继续累积原生 `source` 链由 `ReportOptions` 控制。
+`map_err()` 是当前推荐的错误类型转换入口；其是否继续累积原生 `source` 链由 `ReportOptions` 控制。此外，可以使用 `to_report_trans()` 提升并直接转换 Result 内部的错误，或者在宏生成的客户端错误上直接调用 `to_report_trans()` 转换为目标类型的报告。
 
 ### 声明定义
 

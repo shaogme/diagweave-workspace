@@ -286,6 +286,9 @@ pub enum MyError {
 **无痛隐式/显式特质转换 (From / Into)**：
 - 对于使用 `set!`、`union!` 或 `#[derive(Error)]` 生成的原始错误类型 `E`，它们会自动实现标记特质 `DiagnosticError`。
 - 如果目标错误类型 `NewE` 实现了 `From<E>`，你可以直接使用 `.into()` 或利用 `?` 运算符直接将原始错误或其 `Result` 提升并转换为 `Report<NewE>`：
+- **链式显式转换 (`to_report_trans`)**：
+  - 在 `Result<T, E>` 上可以使用 `.to_report_trans::<NewE>()` 提升并直接转换内部错误类型为 `NewE`（要求 `E: Into<NewE>`）。
+  - 在宏生成的错误类型（`#[derive(Error)]`、`set!`、`union!`）上可以使用 `.to_report_trans::<NewE>()` 便捷地一步直接构造目标报告对象（要求 `Self: Into<NewE>`）。
   ```rust
   # use diagweave::prelude::{set, Report};
   # set! {

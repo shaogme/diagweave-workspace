@@ -193,3 +193,18 @@ fn test_generic_from_conversion_for_union_errors() {
         _ => panic!("unexpected inner error in union report"),
     }
 }
+
+#[test]
+fn test_union_to_report_trans() {
+    use diagweave::report::Report;
+
+    let api = ApiError::rate_limited(5);
+    let report: Report<OuterError> = api.to_report_trans();
+
+    match report.inner() {
+        OuterError::ApiError(ApiError::RateLimited { retry_after_secs }) => {
+            assert_eq!(*retry_after_secs, 5)
+        }
+        _ => panic!("unexpected inner error in union report"),
+    }
+}
