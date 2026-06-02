@@ -1,6 +1,6 @@
 [package]
 name = "diagweave"
-version = "0.1.6"
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -13,7 +13,7 @@ keywords = ["error-handling", "diagnostics", "result", "diagweave"]
 categories = ["rust-patterns", "development-tools::debugging"]
 
 [dependencies]
-diagweave-macros = { version = "0.1", workspace = true }
+diagweave-macros.workspace = true
 ref_str = { version = "0.2.0", features = ["serde"] }
 opentelemetry = { version = "0.31", default-features = false, optional = true }
 opentelemetry_sdk = { version = "0.31", default-features = false, optional = true }

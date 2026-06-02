@@ -65,7 +65,7 @@
 
 ```toml
 [dependencies]
-diagweave = "0.1"
+diagweave = "0.2"
 ```
 
 如果不需要默认 feature：
@@ -98,15 +98,14 @@ fn verify(user_id: u64) -> Result<(), AuthError> {
 
 fn main() {
     let report: Report<AuthError> = verify(7)
-        .to_report()
-        .and_then_report(|r| {
+        .diag(|r| {
             r.with_ctx("request_id", "req-001")
                 .with_ctx("retry", 0)
                 .attach_note("auth gate rejected")
         })
         .expect_err("demo");
 
-    // 也可以用 diag 作为两步链路的简写
+    // 也可以直接在 Result 上调用 diag 进行转换与装饰
     let diag_report = verify(7).diag(|r| {
         r.with_ctx("request_id", "req-001")
             .with_ctx("retry", 0)
@@ -279,9 +278,10 @@ pub enum MyError {
 
 常用链式增强（`Result<T, Report<E>>`）：
 
-- `and_then_report(|r| r.with_ctx(key, value).with_severity(...))` — 在错误路径上应用任意 `Report` 方法链
-- `map_report_err(|e| Outer::from(e))` — 转换内部错误类型，并保留所有诊断信息
-- `into_report_inner()` — 丢弃诊断信息，返回 `Result<T, E>`
+- `map_report(|r| r.with_ctx(key, value).with_severity(...))` — 在错误路径上应用任意 `Report` 方法链
+- `map_inner_err(|e| Outer::from(e))` — 转换内部错误类型，并保留所有诊断信息
+- `trans_inner_err()` — 转换内部错误类型的便捷快捷方式（当 `E: Into<NewE>` 时）
+- `into_inner_err()` — 丢弃诊断信息，返回 `Result<T, E>`
 
 `category`、`trace_state` 和 trace 事件名等高频字符串在捕获后会以 `StaticRefStr` 共享存储。
 附件 key、payload 名称、payload media type、全局上下文 key 等持久化字符串也统一使用 `StaticRefStr`。

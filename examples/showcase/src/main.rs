@@ -174,7 +174,7 @@ fn service_layer(user_id: u64) -> Result<(), Report<AppError>> {
 fn api_handler(request_id: &'static str) -> Result<String, Report<ApiError, HasSeverity>> {
     let (trace_id, span_id, parent_span_id) = parse_trace_ids()?;
 
-    service_layer(1001).and_then_report(|r| {
+    service_layer(1001).map_report(|r| {
         r.with_ctx("request_id", request_id)
             .attach_payload(
                 "request_meta",

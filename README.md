@@ -65,7 +65,7 @@ Benefits:
 
 ```toml
 [dependencies]
-diagweave = "0.1"
+diagweave = "0.2"
 ```
 
 If you do not need default features:
@@ -98,15 +98,14 @@ fn verify(user_id: u64) -> Result<(), AuthError> {
 
 fn main() {
     let report: Report<AuthError> = verify(7)
-        .to_report()
-        .and_then_report(|r| {
+        .diag(|r| {
             r.with_ctx("request_id", "req-001")
                 .with_ctx("retry", 0)
                 .attach_note("auth gate rejected")
         })
         .expect_err("demo");
 
-    // Or equivalently using `diag` as a shorthand for the two-step chain
+    // Or equivalently call `diag` directly on Result to transform and decorate
     let diag_report = verify(7).diag(|r| {
         r.with_ctx("request_id", "req-001")
             .with_ctx("retry", 0)
@@ -279,9 +278,10 @@ From `Result<T, E>`:
 
 Common enrichers on `Result<T, Report<E>>`:
 
-- `and_then_report(|r| r.with_ctx(key, value).with_severity(...))` — apply any chain of `Report` builder methods on the error path
-- `map_report_err(|e| Outer::from(e))` — transform the inner error type while preserving all diagnostics
-- `into_report_inner()` — discard diagnostics and return `Result<T, E>`
+- `map_report(|r| r.with_ctx(key, value).with_severity(...))` — apply any chain of `Report` builder methods on the error path
+- `map_inner_err(|e| Outer::from(e))` — transform the inner error type while preserving all diagnostics
+- `trans_inner_err()` — convenient shortcut to convert the inner error type (when `E: Into<NewE>`)
+- `into_inner_err()` — discard diagnostics and return `Result<T, E>`
 
 Hot-path string fields like `category`, `trace_state`, and trace event names are stored with `StaticRefStr` after capture.
 Attachment keys, payload names, payload media types, global context keys, and other stored string metadata also use `StaticRefStr`.

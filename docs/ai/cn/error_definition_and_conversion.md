@@ -170,9 +170,10 @@ enum FileError {
 
 #### 2. `ResultReportExt` (作用于 `Result<T, Report<E>>`)
 不再重复每个 `Report` 方法，而是提供单一组合子：
-- `and_then_report(|r| r.with_ctx(...).with_severity(...))` — 仅在错误路径上应用任意 `Report` 方法链
-- `map_report_err(|e| Outer::from(e))` — 转换内部错误类型，并保留所有诊断信息
-- `into_report_inner()` — 丢弃诊断信息，返回 `Result<T, E>`
+- `map_report(|r| r.with_ctx(...).with_severity(...))` — 仅在错误路径上应用任意 `Report` 方法链
+- `map_inner_err(|e| Outer::from(e))` — 转换内部错误类型，并保留所有诊断信息
+- `trans_inner_err()` — 转换内部错误类型的便捷快捷方式（当 `E: Into<NewE>` 时）
+- `into_inner_err()` — 丢弃诊断信息，返回 `Result<T, E>`
 
 闭包接收 owned `Report` 并返回 owned `Report`。在 `Ok` 路径上闭包永远不会被调用，提供天然的延迟语义。
 
@@ -207,9 +208,8 @@ fn process() -> Result<(), Report<io::Error, HasSeverity>> {
 // 示例：在保留诊断信息的同时转换错误类型
 fn boundary_op() -> Result<String, Report<io::Error>> {
     fs::read_to_string("config.toml")
-        .to_report()
-        .map_report_err(|e| io::Error::new(io::ErrorKind::Other, e))
-        .and_then_report(|r| r.attach_note("在边界处捕获"))
+        .diag(|r| r.attach_note("captured at boundary"))
+        .map_inner_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 ```
 
@@ -388,8 +388,7 @@ fn db_operation() -> Result<(), DatabaseError> {
 
 fn service_layer() -> Result<(), Report<AppError>> {
     db_operation()
-        .to_report()
-        .and_then_report(|r| {
+        .diag(|r| {
             r.with_ctx("db", "primary")
                 .set_accumulate_src_chain(true)
                 .map_err(AppError::Db)

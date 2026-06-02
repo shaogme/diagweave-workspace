@@ -9,10 +9,7 @@ enum DemoError {
     #[display("upstream failed: {0}")]
     Upstream(#[source] std::io::Error),
     #[display("{step} 失败（退出码: {code:?}）")]
-    SetupFailed {
-        step: String,
-        code: Option<i32>,
-    },
+    SetupFailed { step: String, code: Option<i32> },
 }
 
 #[derive(Debug, Error)]

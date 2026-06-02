@@ -96,6 +96,14 @@ fn fail_auth() -> Result<(), AuthError> {
     Err(AuthError::InvalidToken)
 }
 
+impl From<AuthError> for ApiError {
+    fn from(err: AuthError) -> Self {
+        match err {
+            AuthError::InvalidToken => ApiError::Unauthorized,
+        }
+    }
+}
+
 #[test]
 fn error_value_diag_is_supported() {
     let _guard = init_test();
@@ -266,11 +274,11 @@ fn lazy_context_and_note_evaluate_only_on_error() {
     let ok: Result<(), Report<AuthError>> = Ok(());
     let counter = std::cell::Cell::new(0usize);
     let _ = ok
-        .and_then_report(|r| {
+        .map_report(|r| {
             counter.set(counter.get() + 1);
             r.with_ctx("hot_path", ContextValue::Bool(true))
         })
-        .and_then_report(|r| {
+        .map_report(|r| {
             counter.set(counter.get() + 1);
             r.attach_note("should not allocate")
         });
@@ -493,3 +501,23 @@ fn report_types_debug_output_is_optimized() {
     assert!(!debug_trace.contains("frames"));
 }
 
+#[test]
+fn test_result_report_ext_new_methods() {
+    let _guard = init_test();
+
+    let err: Result<(), Report<AuthError>> = Err(Report::new(AuthError::InvalidToken));
+
+    // test map_inner_err
+    let mapped = err.map_inner_err(|_| ApiError::Unauthorized);
+    assert_eq!(mapped.report_inner(), Some(&ApiError::Unauthorized));
+
+    // test trans_inner_err
+    let err2: Result<(), Report<AuthError>> = Err(Report::new(AuthError::InvalidToken));
+    let transed: Result<(), Report<ApiError>> = err2.trans_inner_err();
+    assert_eq!(transed.report_inner(), Some(&ApiError::Unauthorized));
+
+    // test into_inner_err
+    let err3: Result<(), Report<AuthError>> = Err(Report::new(AuthError::InvalidToken));
+    let inner = err3.into_inner_err();
+    assert!(matches!(inner, Err(AuthError::InvalidToken)));
+}

@@ -254,7 +254,7 @@ mod order {
         order_id: u64,
         amount_cents: u64,
     ) -> Result<(), Report<OrderError, HasSeverity>> {
-        payment::charge(amount_cents).and_then_report(|r| {
+        payment::charge(amount_cents).map_report(|r| {
             r.with_ctx("order_id", order_id)
                 .with_ctx("order_amount_cents", amount_cents)
                 .attach_note("order pipeline entered payment stage")
@@ -307,7 +307,7 @@ mod gateway {
     }
 
     fn payment_declined() -> Result<String, ScenarioReport> {
-        payment::charge(0).and_then_report(|r| {
+        payment::charge(0).map_report(|r| {
             r.with_ctx("route", "/v1/charge")
                 .attach_note("gateway forwarding to payment")
                 .with_error_code("API.PAYMENT_DECLINED")
@@ -329,7 +329,7 @@ mod gateway {
     }
 
     fn order_network_error() -> Result<String, ScenarioReport> {
-        order::create_with_amount(9002, 2).and_then_report(|r| {
+        order::create_with_amount(9002, 2).map_report(|r| {
             r.with_ctx("route", "/v1/order")
                 .attach_note("gateway forwarding to order service")
                 .with_error_code("API.ORDER_UPSTREAM_FAILURE")
@@ -352,7 +352,7 @@ mod gateway {
     }
 
     fn success_path() -> Result<String, ScenarioReport> {
-        order::create(9001).and_then_report(|r| {
+        order::create(9001).map_report(|r| {
             r.with_ctx("route", "/v1/order")
                 .attach_note("gateway forwarding to order service")
                 .push_trace_event_with(

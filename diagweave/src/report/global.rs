@@ -269,5 +269,4 @@ impl<E> Report<E, crate::report::MissingSeverity> {
         #[cfg(not(feature = "std"))]
         return report;
     }
-
 }

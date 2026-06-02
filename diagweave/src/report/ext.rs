@@ -53,7 +53,7 @@ pub trait Diagnostic {
     where
         Self: Sized,
     {
-        self.to_report().and_then_report(
+        self.to_report().map_report(
             |report: Report<Self::Error, MissingSeverity>| -> Report<Self::Error, MissingSeverity> {
                 Report::<Self::Error, MissingSeverity>::attach_note(report, message)
             },
@@ -126,7 +126,7 @@ where
     /// The closure receives an owned `Report` and must return an owned `Report`
     /// of any error and state type. If the result is `Ok`, the
     /// closure is never invoked.
-    fn and_then_report<NewE, NewState>(
+    fn map_report<NewE, NewState>(
         self,
         f: impl FnOnce(Report<E, State>) -> Report<NewE, NewState>,
     ) -> Result<T, Report<NewE, NewState>>
@@ -137,14 +137,21 @@ where
     ///
     /// This is a convenience wrapper around [`Report::map_err`] that operates
     /// on the error path of a `Result`.
-    fn map_report_err<NewE>(self, f: impl FnOnce(E) -> NewE) -> Result<T, Report<NewE, State>>
+    fn map_inner_err<NewE>(self, f: impl FnOnce(E) -> NewE) -> Result<T, Report<NewE, State>>
     where
         E: core::error::Error + Send + Sync + 'static,
         NewE: core::error::Error + Send + Sync + 'static;
 
+    /// A convenient shortcut to convert the inner error to a different type via `Into`.
+    fn trans_inner_err<NewE>(self) -> Result<T, Report<NewE, State>>
+    where
+        E: core::error::Error + Send + Sync + 'static,
+        E: Into<NewE>,
+        NewE: core::error::Error + Send + Sync + 'static;
+
     /// Consumes the result and returns the inner error if it's an error,
     /// discarding all diagnostic information.
-    fn into_report_inner(self) -> Result<T, E>;
+    fn into_inner_err(self) -> Result<T, E>;
 
     for_each_report_builder_method!(define_ext_method);
 }
@@ -153,7 +160,7 @@ impl<T, E, State> ResultReportExt<T, E, State> for Result<T, Report<E, State>>
 where
     State: SeverityState,
 {
-    fn and_then_report<NewE, NewState>(
+    fn map_report<NewE, NewState>(
         self,
         f: impl FnOnce(Report<E, State>) -> Report<NewE, NewState>,
     ) -> Result<T, Report<NewE, NewState>>
@@ -163,7 +170,7 @@ where
         self.map_err(f)
     }
 
-    fn map_report_err<NewE>(self, f: impl FnOnce(E) -> NewE) -> Result<T, Report<NewE, State>>
+    fn map_inner_err<NewE>(self, f: impl FnOnce(E) -> NewE) -> Result<T, Report<NewE, State>>
     where
         E: core::error::Error + Send + Sync + 'static,
         NewE: core::error::Error + Send + Sync + 'static,
@@ -171,7 +178,16 @@ where
         self.map_err(|r| r.map_err(f))
     }
 
-    fn into_report_inner(self) -> Result<T, E> {
+    fn trans_inner_err<NewE>(self) -> Result<T, Report<NewE, State>>
+    where
+        E: core::error::Error + Send + Sync + 'static,
+        E: Into<NewE>,
+        NewE: core::error::Error + Send + Sync + 'static,
+    {
+        self.map_err(|r| r.map_err(|e| e.into()))
+    }
+
+    fn into_inner_err(self) -> Result<T, E> {
         self.map_err(|r| r.into_inner())
     }
 
