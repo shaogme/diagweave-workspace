@@ -452,3 +452,44 @@ fn report_field_getters_are_exposed() {
     assert_eq!(report.category(), Some("auth"));
     assert_eq!(report.retryable(), Some(false));
 }
+
+#[test]
+fn report_types_debug_output_is_optimized() {
+    let _guard = init_test();
+
+    use diagweave::report::ReportMetadata;
+    // Verify ReportMetadata debug representation
+    let metadata = ReportMetadata::new()
+        .with_error_code("TEST.CODE")
+        .set_severity(Severity::Error);
+    let debug_meta = format!("{:?}", metadata);
+    assert!(debug_meta.contains("ReportMetadata"));
+    assert!(debug_meta.contains("severity: Some(Error)"));
+    assert!(debug_meta.contains("TEST.CODE"));
+    // Since category and retryable are not set, they should not appear in the debug output!
+    assert!(!debug_meta.contains("category"));
+    assert!(!debug_meta.contains("retryable"));
+
+    // Verify StackFrame debug representation
+    use diagweave::report::StackFrame;
+    let mut frame = StackFrame::default();
+    frame.symbol = Some("test_fn".into());
+    frame.line = Some(42);
+    let debug_frame = format!("{:?}", frame);
+    assert!(debug_frame.contains("StackFrame"));
+    assert!(debug_frame.contains("test_fn"));
+    assert!(debug_frame.contains("42"));
+    assert!(!debug_frame.contains("file"));
+    assert!(!debug_frame.contains("module_path"));
+    assert!(!debug_frame.contains("column"));
+
+    // Verify StackTrace debug representation
+    let trace = StackTrace::new(StackTraceFormat::Raw).with_raw("raw frame dump");
+    let debug_trace = format!("{:?}", trace);
+    assert!(debug_trace.contains("StackTrace"));
+    assert!(debug_trace.contains("Raw"));
+    assert!(debug_trace.contains("raw frame dump"));
+    // Since frames is empty, it should not appear
+    assert!(!debug_trace.contains("frames"));
+}
+

@@ -119,15 +119,20 @@ impl TracingExporterTrait for ConsoleExporter {
     fn export_prepared(&self, emission: PreparedTracingEmission<'_>) -> EmitStats {
         let stats = emission.stats();
         let ir = emission.ir();
-        println!(
-            "[Tracing Exporter] error={}, severity={:?}, required_severity={:?}, context_count={}, attachment_count={}, stack_trace={}",
-            ir.error.message,
-            ir.metadata.severity(),
-            ir.metadata.required_severity(),
-            ir.context.len(),
-            ir.attachments.len(),
-            ir.metadata.stack_trace().is_some()
-        );
+
+        let severity_str = match ir.metadata.severity() {
+            Some(s) => format!("{:?}", s),
+            None => "None".to_string(),
+        };
+
+        println!("[Tracing Exporter]");
+        println!("  error: {}", ir.error.message);
+        println!("  severity: {}", severity_str);
+        println!("  required_severity: {:?}", ir.metadata.required_severity());
+        println!("  context_count: {}", ir.context.len());
+        println!("  attachment_count: {}", ir.attachments.len());
+        println!("  stack_trace: {}", ir.metadata.stack_trace().is_some());
+
         stats
     }
 }

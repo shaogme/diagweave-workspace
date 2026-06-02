@@ -297,11 +297,11 @@ fn render_raw_stack_trace(
     if let Some(raw) = &stack_trace.raw {
         for line in raw.lines().take(max_lines) {
             write_indent(f, indent)?;
-            writeln!(f, "- {line}")?;
+            writeln!(f, "  {line}")?;
         }
         if raw.lines().count() > max_lines {
             write_indent(f, indent)?;
-            writeln!(f, "- ... truncated stack trace output")?;
+            writeln!(f, "  ... truncated stack trace output")?;
         }
     } else {
         write_indent(f, indent)?;

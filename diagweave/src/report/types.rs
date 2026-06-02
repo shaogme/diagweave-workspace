@@ -119,7 +119,7 @@ impl<'de> serde::Deserialize<'de> for HasSeverity {
 
 /// Inner metadata structure containing the actual metadata fields.
 /// This is boxed inside ReportMetadata to enable lazy allocation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct MetadataInner {
     error_code: Option<ErrorCode>,
@@ -127,7 +127,23 @@ pub(crate) struct MetadataInner {
     retryable: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl fmt::Debug for MetadataInner {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("MetadataInner");
+        if let Some(error_code) = &self.error_code {
+            d.field("error_code", error_code);
+        }
+        if let Some(category) = &self.category {
+            d.field("category", category);
+        }
+        if let Some(retryable) = &self.retryable {
+            d.field("retryable", retryable);
+        }
+        d.finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 /// Report metadata carried alongside a diagnostic.
 ///
@@ -138,6 +154,25 @@ pub struct ReportMetadata<State: SeverityState> {
     severity: State,
     #[cfg_attr(feature = "json", serde(flatten))]
     inner: Option<Box<MetadataInner>>,
+}
+
+impl<State: SeverityState> fmt::Debug for ReportMetadata<State> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("ReportMetadata");
+        d.field("severity", &self.severity());
+        if let Some(inner) = &self.inner {
+            if let Some(error_code) = &inner.error_code {
+                d.field("error_code", error_code);
+            }
+            if let Some(category) = &inner.category {
+                d.field("category", category);
+            }
+            if let Some(retryable) = &inner.retryable {
+                d.field("retryable", retryable);
+            }
+        }
+        d.finish()
+    }
 }
 
 impl<State: SeverityState> ReportMetadata<State> {
@@ -318,7 +353,7 @@ pub enum StackTraceFormat {
     Raw,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Default, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 pub struct StackFrame {
     pub symbol: Option<StaticRefStr>,
@@ -328,12 +363,48 @@ pub struct StackFrame {
     pub column: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl fmt::Debug for StackFrame {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("StackFrame");
+        if let Some(symbol) = &self.symbol {
+            d.field("symbol", symbol);
+        }
+        if let Some(module_path) = &self.module_path {
+            d.field("module_path", module_path);
+        }
+        if let Some(file) = &self.file {
+            d.field("file", file);
+        }
+        if let Some(line) = &self.line {
+            d.field("line", line);
+        }
+        if let Some(column) = &self.column {
+            d.field("column", column);
+        }
+        d.finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 pub struct StackTrace {
     pub format: StackTraceFormat,
     pub frames: Arc<[StackFrame]>,
     pub raw: Option<StaticRefStr>,
+}
+
+impl fmt::Debug for StackTrace {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("StackTrace");
+        d.field("format", &self.format);
+        if !self.frames.is_empty() {
+            d.field("frames", &self.frames);
+        }
+        if let Some(raw) = &self.raw {
+            d.field("raw", raw);
+        }
+        d.finish()
+    }
 }
 
 impl Default for StackTrace {
@@ -396,12 +467,25 @@ impl StackTrace {
 }
 
 /// Traversal state observed during cause collection.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub struct CauseTraversalState {
     /// Whether the traversal was truncated due to depth limit.
     pub truncated: bool,
     /// Whether a circular reference cycle was detected.
     pub cycle_detected: bool,
+}
+
+impl fmt::Debug for CauseTraversalState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("CauseTraversalState");
+        if self.truncated {
+            d.field("truncated", &self.truncated);
+        }
+        if self.cycle_detected {
+            d.field("cycle_detected", &self.cycle_detected);
+        }
+        d.finish()
+    }
 }
 
 impl CauseTraversalState {

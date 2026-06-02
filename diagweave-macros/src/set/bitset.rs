@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub(crate) struct BitSet {
     words: Vec<u64>,
 }
@@ -59,7 +59,7 @@ impl BitSet {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(crate) struct SymbolTable {
     by_key: BTreeMap<String, usize>,
     len: usize,
