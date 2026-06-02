@@ -5,6 +5,12 @@ use super::{
     ReportSourceErrorIter, Severity, SeverityState, StackTrace,
 };
 
+/// A marker trait for raw client error types that can be wrapped in a `Report`.
+///
+/// This trait is automatically implemented for error types using `#[derive(Error)]`,
+/// `set!`, or `union!`.
+pub trait DiagnosticError {}
+
 /// A trait for types that can be converted into a diagnostic result.
 pub trait Diagnostic {
     /// The success value type.

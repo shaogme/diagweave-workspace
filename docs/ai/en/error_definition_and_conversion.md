@@ -127,12 +127,17 @@ Provides convenient implementations of `Display` and `std::error::Error` traits 
 | `#[from]` | Field | None | Auto-implements `From<FieldType>`, constructing Self containing this field |
 | `#[source]` | Field | None | Marks the field as the return value for `Error::source()` |
 
-### Generated Member Methods
-Any type deriving `Error` automatically gains the following helper methods:
-| Method Declaration | Return Type | Description |
+### Generated Member Methods & Trait Implementations
+Any type deriving `Error` automatically gains the following helper methods and trait implementations:
+| Declaration | Return Type/Trait | Description |
 | :--- | :--- | :--- |
 | `pub fn to_report(self)` | `Report<Self>` | Converts to a basic report object |
 | `pub fn source(&self)` | `Option<&dyn Error>` | Convenient access to the underlying error source |
+| `impl DiagnosticError` | `DiagnosticError` | Marks this client error type for automatic conversion to any compatible `Report<NewE>` via the `From` trait |
+
+Furthermore, macro-generated/derived types (`#[derive(Error)]`, `set!`, and `union!`) automatically implement the marker trait `DiagnosticError`. If the target error type satisfies `NewE: From<E>`, the raw error `E` can be directly converted into a diagnostic report:
+- `let report: Report<NewE> = raw_err.into();`
+- Or in a function returning `Result<_, Report<NewE>>`, use `?` on `Result<_, E>` for automatic error conversion and propagation.
 
 ### Usage Example
 ```rust
@@ -190,6 +195,19 @@ Read-only helpers for error-path inspection without manually matching `Err`:
 
 ### Usage Example
 ```rust
+# use diagweave::prelude::set;
+# set! {
+#     AuthError = {
+#         #[display("user {user_id} token is invalid")]
+#         InvalidToken { user_id: u64 },
+#     }
+#     ApiError = AuthError | {
+#         Unknown
+#     }
+# }
+# fn verify(user_id: u64) -> Result<String, AuthError> {
+#     Ok("success".to_string())
+# }
 use diagweave::prelude::*;
 use std::{fs, io};
 use std::time::SystemTime;
@@ -213,6 +231,14 @@ fn boundary_op() -> Result<String, Report<io::Error>> {
     fs::read_to_string("config.toml")
         .diag(|r| r.attach_note("captured at boundary"))
         .map_inner_err(|e| io::Error::new(io::ErrorKind::Other, e))
+}
+
+// Example: Using the generic From/Into implicit conversion for simplified error promotion
+fn boundary_op_simplified() -> Result<String, Report<ApiError>> {
+    // Assuming verify returns Result<String, AuthError>. Since ApiError implements From<AuthError>
+    // and AuthError implements DiagnosticError, we can simply use `?` for automatic conversion and promotion to Report<ApiError>:
+    let res = verify(7)?;
+    Ok(res)
 }
 ```
 

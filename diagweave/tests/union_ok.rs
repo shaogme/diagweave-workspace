@@ -173,3 +173,23 @@ fn union_enum_provides_diag_helpers() {
     assert_eq!(report.to_string(), "Rate limited for 8s");
     assert!(ApiError::rate_limited(8).source().is_none());
 }
+
+union! {
+    pub enum OuterError = ApiError
+}
+
+#[test]
+fn test_generic_from_conversion_for_union_errors() {
+    use diagweave::report::Report;
+
+    // ApiError -> Report<OuterError>
+    let api = ApiError::rate_limited(5);
+    let report: Report<OuterError> = api.into();
+
+    match report.inner() {
+        OuterError::ApiError(ApiError::RateLimited { retry_after_secs }) => {
+            assert_eq!(*retry_after_secs, 5)
+        }
+        _ => panic!("unexpected inner error in union report"),
+    }
+}

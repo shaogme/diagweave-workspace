@@ -197,3 +197,14 @@ where
             .or_else(|| Report::<E, State>::inner(self).source())
     }
 }
+
+impl<E, NewE> From<E> for Report<NewE, super::MissingSeverity>
+where
+    E: super::DiagnosticError,
+    NewE: From<E>,
+{
+    #[inline]
+    fn from(err: E) -> Self {
+        Report::new(NewE::from(err))
+    }
+}

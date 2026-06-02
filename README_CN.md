@@ -283,6 +283,30 @@ pub enum MyError {
 - `trans_inner_err()` — 转换内部错误类型的便捷快捷方式（当 `E: Into<NewE>` 时）
 - `into_inner_err()` — 丢弃诊断信息，返回 `Result<T, E>`
 
+**无痛隐式/显式特质转换 (From / Into)**：
+- 对于使用 `set!`、`union!` 或 `#[derive(Error)]` 生成的原始错误类型 `E`，它们会自动实现标记特质 `DiagnosticError`。
+- 如果目标错误类型 `NewE` 实现了 `From<E>`，你可以直接使用 `.into()` 或利用 `?` 运算符直接将原始错误或其 `Result` 提升并转换为 `Report<NewE>`：
+  ```rust
+  # use diagweave::prelude::{set, Report};
+  # set! {
+  #     AuthError = {
+  #         InvalidToken,
+  #     }
+  #     ApiError = AuthError | {
+  #         Other
+  #     }
+  # }
+  # fn main() -> Result<(), Report<ApiError>> {
+  # fn do_something_returning_auth_error() -> Result<u32, AuthError> { Ok(42) }
+  // 隐式提升与转换：AuthError -> Report<ApiError>
+  let report: Report<ApiError> = AuthError::InvalidToken.into();
+
+  // 配合 ? 运算符自动传播与转换（当函数返回 Result<_, Report<ApiError>> 时）：
+  let val = do_something_returning_auth_error()?; 
+  # Ok(())
+  # }
+  ```
+
 `category`、`trace_state` 和 trace 事件名等高频字符串在捕获后会以 `StaticRefStr` 共享存储。
 附件 key、payload 名称、payload media type、全局上下文 key 等持久化字符串也统一使用 `StaticRefStr`。
 对应的设置接口也接受 `impl Into<StaticRefStr>`，可以直接传入共享字符串而不再额外拷贝。

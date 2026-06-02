@@ -30,5 +30,6 @@ pub(crate) fn enum_impl_helpers(enum_ident: &Ident, source_arms: &[TokenStream])
                 }
             }
         }
+        impl ::diagweave::report::DiagnosticError for #enum_ident {}
     }
 }

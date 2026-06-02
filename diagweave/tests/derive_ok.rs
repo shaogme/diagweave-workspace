@@ -50,3 +50,36 @@ fn derive_direct_diag_on_client_error() {
     // Ensure we got a report and inner error renders as expected
     assert_eq!(report.inner().to_string(), "client error code=403");
 }
+
+#[derive(Debug, Error)]
+enum AppError {
+    #[display("net error: {0}")]
+    Net(#[from] DemoError),
+}
+
+#[test]
+fn test_generic_from_conversion_for_report() {
+    use diagweave::report::Report;
+
+    // Test direct .into() conversion: DemoError -> Report<AppError>
+    let demo = DemoError::NotFound { id: 101 };
+    let report: Report<AppError> = demo.into();
+
+    match report.inner() {
+        AppError::Net(DemoError::NotFound { id }) => assert_eq!(*id, 101),
+        _ => panic!("unexpected inner error"),
+    }
+
+    // Test automatic conversion with `?` operator in a function returning Result<_, Report<AppError>>
+    fn trigger_error() -> Result<(), Report<AppError>> {
+        let res: Result<(), DemoError> = Err(DemoError::NotFound { id: 202 });
+        res?; // should automatically convert via From to Report<AppError>!
+        Ok(())
+    }
+
+    let err_report = trigger_error().unwrap_err();
+    match err_report.inner() {
+        AppError::Net(DemoError::NotFound { id }) => assert_eq!(*id, 202),
+        _ => panic!("unexpected inner error from propagation"),
+    }
+}

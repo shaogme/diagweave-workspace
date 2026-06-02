@@ -127,12 +127,17 @@ union! {
 | `#[from]` | 字段 | 无 | 自动实现 `From<FieldType>`，生成的实现会构造包含该字段的 Self |
 | `#[source]` | 字段 | 无 | 标记该字段为 `Error::source()` 的返回值 |
 
-### 生成成员方法
-任何派生了 `Error` 的类型会自动获得以下辅助方法：
-| 方法声明 | 返回类型 | 说明 |
+### 生成成员方法与特质实现
+任何派生了 `Error` 的类型会自动获得以下辅助方法与特质实现：
+| 声明 | 返回类型/特质 | 说明 |
 | :--- | :--- | :--- |
 | `pub fn to_report(self)` | `Report<Self>` | 转换为基础报告对象 |
 | `pub fn source(&self)` | `Option<&dyn Error>` | 便捷访问底层 Error 源 |
+| `impl DiagnosticError` | `DiagnosticError` | 标记该客户端错误可以通过 `From` 特质自动转换为任何兼容的 `Report<NewE>` |
+
+此外，派生宏、`set!` 宏和 `union!` 宏会自动实现标记特质 `DiagnosticError`。当目标错误类型满足 `NewE: From<E>` 时，允许直接将原始错误 `E` 转换为诊断报告：
+- `let report: Report<NewE> = raw_err.into();`
+- 或者在返回 `Result<_, Report<NewE>>` 的函数中，直接使用 `?` 对 `Result<_, E>` 进行自动类型提升与传播。
 
 ### 示例用法
 ```rust
@@ -187,6 +192,19 @@ enum FileError {
 
 ### 用法示例
 ```rust
+# use diagweave::prelude::set;
+# set! {
+#     AuthError = {
+#         #[display("user {user_id} token is invalid")]
+#         InvalidToken { user_id: u64 },
+#     }
+#     ApiError = AuthError | {
+#         Unknown
+#     }
+# }
+# fn verify(user_id: u64) -> Result<String, AuthError> {
+#     Ok("success".to_string())
+# }
 use diagweave::prelude::*;
 use std::{fs, io};
 use std::time::SystemTime;
@@ -210,6 +228,14 @@ fn boundary_op() -> Result<String, Report<io::Error>> {
     fs::read_to_string("config.toml")
         .diag(|r| r.attach_note("captured at boundary"))
         .map_inner_err(|e| io::Error::new(io::ErrorKind::Other, e))
+}
+
+// 示例：利用通用 From/Into 隐式转换简化错误提升
+fn boundary_op_simplified() -> Result<String, Report<ApiError>> {
+    // 假设 verify 返回 Result<String, AuthError>，因为 ApiError 实现了 From<AuthError>，
+    // 并且 AuthError 实现了 DiagnosticError，我们可以极其简单地用 `?` 自动转换并提升为 Report<ApiError>：
+    let res = verify(7)?;
+    Ok(res)
 }
 ```
 

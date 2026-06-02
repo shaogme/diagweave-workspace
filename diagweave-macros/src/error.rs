@@ -70,6 +70,8 @@ fn expand_derive_error(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
             }
         }
 
+        impl #impl_generics ::diagweave::report::DiagnosticError for #ident #ty_generics #where_clause {}
+
         #(#from_impls)*
     })
 }
