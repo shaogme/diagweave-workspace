@@ -14,9 +14,9 @@ Trace:
   - (none)
 Stack Trace:
   - format: Raw
-  - main
-  - handler
-  - process
+    main
+    handler
+    process
 System:
   - host: prod-01
 Context:

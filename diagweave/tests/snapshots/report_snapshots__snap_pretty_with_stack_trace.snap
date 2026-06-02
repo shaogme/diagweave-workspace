@@ -11,9 +11,9 @@ Trace:
   - (none)
 Stack Trace:
   - format: Raw
-  - frame-a
-  - frame-b
-  - frame-c
+    frame-a
+    frame-b
+    frame-c
 System:
   - (none)
 Context:
