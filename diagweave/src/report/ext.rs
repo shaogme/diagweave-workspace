@@ -36,20 +36,14 @@ pub trait Diagnostic {
     /// The error type.
     type Error;
 
-    fn to_report<T>(self) -> Result<T, Report<Self::Error>>
-    where
-        Self: Sized + IntoResult<T, Self::Error>;
-
-    /// Converts the inner error to a different type via `Into` while wrapping in a `Report`.
-    fn to_report_trans<T, NewE>(self) -> Result<T, Report<NewE>>
+    /// Converts the type into a diagnostic result, automatically converting the inner error
+    /// type to `TargetE` via `Into`.
+    fn to_report_res<T, TargetE>(self) -> Result<T, Report<TargetE>>
     where
         Self: Sized + IntoResult<T, Self::Error>,
-        Self::Error: Into<NewE>,
+        Self::Error: Into<TargetE>,
         Self::Error: Error + Send + Sync + 'static,
-        NewE: Error + Send + Sync + 'static,
-    {
-        self.to_report().map_err(|r| r.map_err(|e| e.into()))
-    }
+        TargetE: Error + Send + Sync + 'static;
 
     /// Convenience: perform a transformation on the error path in a single step.
     ///
@@ -78,9 +72,10 @@ pub trait Diagnostic {
     ) -> Result<T, Report<E2, State2>>
     where
         Self: Sized + IntoResult<T, Self::Error>,
+        Self::Error: Error + Send + Sync + 'static,
         State2: SeverityState,
     {
-        self.to_report().map_err(f)
+        self.to_report_res::<T, Self::Error>().map_err(f)
     }
 
     fn to_report_note<T>(
@@ -89,8 +84,9 @@ pub trait Diagnostic {
     ) -> Result<T, Report<Self::Error>>
     where
         Self: Sized + IntoResult<T, Self::Error>,
+        Self::Error: Error + Send + Sync + 'static,
     {
-        self.to_report().map_report(
+        self.to_report_res::<T, Self::Error>().map_report(
             |report: Report<Self::Error, MissingSeverity>| -> Report<Self::Error, MissingSeverity> {
                 Report::<Self::Error, MissingSeverity>::attach_note(report, message)
             },
@@ -101,11 +97,14 @@ pub trait Diagnostic {
 impl<T, E> Diagnostic for Result<T, E> {
     type Error = E;
 
-    fn to_report<T2>(self) -> Result<T2, Report<Self::Error>>
+    fn to_report_res<T2, TargetE>(self) -> Result<T2, Report<TargetE>>
     where
         Self: Sized + IntoResult<T2, Self::Error>,
+        Self::Error: Into<TargetE>,
+        Self::Error: Error + Send + Sync + 'static,
+        TargetE: Error + Send + Sync + 'static,
     {
-        self.into_result().map_err(Report::new)
+        self.into_result().map_err(|e| Report::new(e.into()))
     }
 }
 
@@ -115,11 +114,14 @@ where
 {
     type Error = E;
 
-    fn to_report<T2>(self) -> Result<T2, Report<Self::Error>>
+    fn to_report_res<T2, TargetE>(self) -> Result<T2, Report<TargetE>>
     where
         Self: Sized + IntoResult<T2, Self::Error>,
+        Self::Error: Into<TargetE>,
+        Self::Error: Error + Send + Sync + 'static,
+        TargetE: Error + Send + Sync + 'static,
     {
-        self.into_result().map_err(Report::new)
+        self.into_result().map_err(|e| Report::new(e.into()))
     }
 }
 

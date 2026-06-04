@@ -119,7 +119,7 @@ union! {
 ## 3. `#[derive(Error)]` 派生宏
 
 ### 概览
-为已有的独立 `struct` 或 `enum` 类型提供 `Display` 和 `std::error::Error` 特质的便捷实现，并桥接到 `diagweave` 诊断体系。
+为已有的独立 `struct` 或 `enum` 类型提供 `Display` 和 `std::error::Error` trait 的便捷实现，并桥接到 `diagweave` 诊断体系。
 
 ### 支持属性 (Attributes)
 | 属性 | 位置 | 参数 | 说明 |
@@ -128,16 +128,16 @@ union! {
 | `#[from]` | 字段 | 无 | 自动实现 `From<FieldType>`，生成的实现会构造包含该字段的 Self |
 | `#[source]` | 字段 | 无 | 标记该字段为 `Error::source()` 的返回值 |
 
-### 生成成员方法与特质实现
-任何派生了 `Error` 的类型会自动获得以下辅助方法与特质实现：
-| 声明 | 返回类型/特质 | 说明 |
+### 生成成员方法与 trait 实现
+任何派生了 `Error` 的类型会自动获得以下辅助方法与 trait 实现：
+| 声明 | 返回类型/trait  | 说明 |
 | :--- | :--- | :--- |
 | `pub fn to_report(self)` | `Report<Self>` | 转换为基础报告对象 |
 | `pub fn to_report_trans::<NewE>(self)` | `Report<NewE>` | 转换为目标类型报告 (要求 `Self: Into<NewE>`) |
 | `pub fn source(&self)` | `Option<&dyn Error>` | 便捷访问底层 Error 源 |
-| `impl DiagnosticError` | `DiagnosticError` | 标记该客户端错误可以通过 `From` 特质自动转换为任何兼容的 `Report<NewE>` |
+| `impl DiagnosticError` | `DiagnosticError` | 标记该客户端错误可以通过 `From` trait 自动转换为任何兼容的 `Report<NewE>` |
 
-此外，派生宏、`set!` 宏和 `union!` 宏会自动实现标记特质 `DiagnosticError`。当目标错误类型满足 `NewE: From<E>` 时，允许直接将原始错误 `E` 转换为诊断报告：
+此外，派生宏、`set!` 宏和 `union!` 宏会自动实现标记 trait  `DiagnosticError`。当目标错误类型满足 `NewE: From<E>` 时，允许直接将原始错误 `E` 转换为诊断报告：
 - `let report: Report<NewE> = raw_err.into();`
 - 或者在返回 `Result<_, Report<NewE>>` 的函数中，直接使用 `?` 对 `Result<_, E>` 进行自动类型提升与传播。
 
@@ -161,16 +161,15 @@ enum FileError {
 
 ---
 
-## 4. `Result` 扩展特质 (`Diagnostic` / `ResultReportExt` / `InspectReportExt`)
+## 4. `Result` 扩展 trait  (`Diagnostic` / `ResultReportExt` / `InspectReportExt`)
 
 ### 概览
-通过为 `Result<T, E>` 和 `Result<T, Report<E>>` 实现扩展特质，提供在错误路径上无缝注入诊断信息的管道。
+通过为 `Result<T, E>` 和 `Result<T, Report<E>>` 实现扩展 trait，提供在错误路径上无缝注入诊断信息的管道。
 
-### 核心特质
+### 核心 trait
 #### 1. `Diagnostic` (作用于 `Result<T, E>`)
-- `to_report()`: 提升 `Err(E)` 为 `Err(Report<E>)`。
+- `to_report_res<TargetE>()`: 提升 `Err(E)` 为 `Err(Report<TargetE>)`，支持自动转换内部错误类型（要求 `E: Into<TargetE>`）。
 - `to_report_note(msg)`: 提升并注入备注。
-- `to_report_trans<NewE>()`: 提升并转换内部错误类型为 `NewE`（要求 `E: Into<NewE>`）。
 - `diag(...)`：Result<T, E> 上的快捷入口，泛型版本允许转换错误类型和状态类型；签名：
   `diag<E2, State2>(self, f: impl FnOnce(Report<E>) -> Report<E2, State2>) -> Result<T, Report<E2, State2>>`。
   闭包接收 `Report<E>` 并返回 `Report<E2, State2>`。当仅添加元数据时无需显式类型标注；
@@ -216,7 +215,7 @@ fn process() -> Result<(), Report<io::Error, HasSeverity>> {
     let file_key = "file";
     let timestamp_key = "timestamp";
     fs::read_to_string("config.toml")
-        .to_report()
+        .to_report_res()
         .with_ctx(file_key, "config.toml")
         .with_severity(Severity::Warn)
         .with_ctx(timestamp_key, ContextValue::String(format!("{:?}", SystemTime::now()).into()))
@@ -427,7 +426,7 @@ fn service_layer() -> Result<(), Report<AppError>> {
 ```
 
 ### 3. 自定义渲染器实现
-通过实现 `ReportRenderer` 特质来自定义输出格式（如输出 to HTML 或 Web UI）。
+通过实现 `ReportRenderer` trait 来自定义输出格式（如输出 to HTML 或 Web UI）。
 ```rust
 use diagweave::prelude::*;
 use std::fmt::{self, Display, Formatter};

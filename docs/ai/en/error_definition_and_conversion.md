@@ -168,9 +168,8 @@ Provides pipelines for seamless diagnostic info injection on error paths by impl
 
 ### Core Traits
 #### 1. `Diagnostic` (on `Result<T, E>`)
-- `to_report()`: Lifts `Err(E)` to `Err(Report<E>)`.
+- `to_report_res<TargetE>()`: Lifts `Err(E)` to `Err(Report<TargetE>)`, supporting automatic conversion of the inner error (requires `E: Into<TargetE>`).
 - `to_report_note(msg)`: Lifts and injects note.
-- `to_report_trans<NewE>()`: Lifts and converts the inner error to `NewE` (requires `E: Into<NewE>`).
 - `diag(...)`: Short-hand for chaining a transformation on the error path. Generic signature:
   `diag<E2, State2>(self, f: impl FnOnce(Report<E>) -> Report<E2, State2>) -> Result<T, Report<E2, State2>>`.
   The closure receives a `Report<E>` and returns a `Report<E2, State2>`. When only adding metadata,
@@ -219,7 +218,7 @@ fn process() -> Result<(), Report<io::Error, HasSeverity>> {
     let file_key = "file";
     let timestamp_key = "timestamp";
     fs::read_to_string("config.toml")
-        .to_report()
+        .to_report_res()
         .with_ctx(file_key, "config.toml")
         .with_severity(Severity::Warn)
         .with_ctx(timestamp_key, ContextValue::String(format!("{:?}", SystemTime::now()).into()))
