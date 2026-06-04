@@ -42,8 +42,8 @@ mod macros;
 mod accessors;
 #[path = "report/builder.rs"]
 mod builder;
-#[path = "report/ext.rs"]
-mod ext;
+#[path = "report/traits.rs"]
+mod traits;
 #[path = "report/global.rs"]
 mod global;
 #[path = "report/impls.rs"]
@@ -59,7 +59,7 @@ mod types;
 use alloc::boxed::Box;
 use core::error::Error;
 
-pub use ext::{DiagnosticError, DiagnosticResult, IntoResult, ResultReportExt, Transform};
+pub use traits::{DiagnosticError, DiagnosticResult, IntoResult, ResultReportExt, Transform};
 pub use types::{
     Attachment, AttachmentValue, CauseCollectOptions, CauseKind, ContextMap, ContextValue,
     DiagnosticBag, DisplayCauseChain, ErrorCode, ErrorCodeIntError, GlobalErrorMeta, HasSeverity,
