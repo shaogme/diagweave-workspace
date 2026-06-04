@@ -80,7 +80,7 @@ With `default-features = false`, `diagweave` supports `no_std + alloc`.
 ## Quick Start
 
 ```rust
-use diagweave::prelude::{set, Diagnostic, Report, ResultReportExt};
+use diagweave::prelude::{set, DiagnosticResult, Report, ResultReportExt};
 
 set! {
     AuthError = {
@@ -150,7 +150,7 @@ set! {
 Additional notes:
 - enum visibility follows the `set!` declaration (`pub`, `pub(crate)`, or private)
 - top-level attributes on the `set!` enum are preserved
-- auto helpers: `to_report()`, `source()`, and `diag()` on the enum
+- auto helper: `source()` on the enum, and implementation of `DiagnosticError` trait (providing `to_report()` and `diag()` default methods)
 
 ## `union!`
 
@@ -197,7 +197,7 @@ Highlights:
 - display delegation for wrapped external errors
 - `as Alias` for variant naming override
 - auto `Error` implementation and auto `Debug` backfill
-- auto helpers: `to_report()`, `source()`, and `diag()` on the enum
+- auto helper: `source()` on the enum, and implementation of `DiagnosticError` trait (providing `to_report()` and `diag()` default methods)
 
 ## Standalone `#[derive(Error)]`
 
@@ -217,7 +217,7 @@ pub enum MyError {
 }
 ```
 
-Supports `#[display(...)]`, `#[display(transparent)]`, `#[from]`, and `#[source]`, plus `to_report()` integration.
+Supports `#[display(...)]`, `#[display(transparent)]`, `#[from]`, and `#[source]`, plus implementation of `DiagnosticError` (providing `to_report()` and `diag()` integration).
 
 ## `Report` and chain APIs
 
@@ -238,7 +238,7 @@ Common enrichers on `Result<T, Report<E>>`:
 - If the target error type `NewE` implements `From<E>`, you can simply use `.into()` or the `?` operator to directly promote and convert a raw error or `Result` into a `Report<NewE>`:
 - **Chained Explicit Conversion (`to_report_res`)**:
   - On `Result<T, E>`, you can use `.to_report_res::<T, TargetE>()` to lift and directly convert the inner error type to `TargetE` (requires `E: Into<TargetE>`).
-  - On macro-generated error types (`#[derive(Error)]`, `set!`, `union!`), you can use `.to_report::<NewE>()` as a convenient shortcut to construct the target report object in a single step (requires `Self: Into<NewE>`).
+  - On macro-generated error types (`#[derive(Error)]`, `set!`, `union!`), you can use `.to_report::<NewE>()` (provided by the `DiagnosticError` trait) as a convenient shortcut to construct the target report object in a single step (requires `Self: Into<NewE>`).
   ```rust
   # use diagweave::prelude::{set, Report};
   # set! {
@@ -343,7 +343,7 @@ use diagweave::render::{Compact, Pretty, ReportRenderOptions, StackTraceFilter};
 #         InvalidToken,
 #     }
 # }
-# let report = Report::new(AuthError::invalid_token());
+# let report = Report::new(AuthError::InvalidToken);
 
 let _ = report.render(Compact::summary()).to_string();
 let _ = report.render(Pretty::new(ReportRenderOptions::default())).to_string();
@@ -377,7 +377,7 @@ IR and adapters:
 #         InvalidToken,
 #     }
 # }
-# let report = Report::new(AuthError::invalid_token())
+# let report = Report::new(AuthError::InvalidToken)
 #     .with_severity(Severity::Error);
 
 let ir = report.to_diagnostic_ir();
@@ -437,7 +437,7 @@ JSON renderer (`json` feature):
 #            InvalidToken,
 #        }
 #    }
-#    let report = Report::new(AuthError::invalid_token());
+#    let report = Report::new(AuthError::InvalidToken);
     let _ = report.render(Json::new(ReportRenderOptions::default())).to_string();
 }
 ```
@@ -476,7 +476,7 @@ Tracing export:
 #            InvalidToken,
 #        }
 #    }
-#    let report = Report::new(AuthError::invalid_token())
+#    let report = Report::new(AuthError::InvalidToken)
 #        .with_severity(Severity::Error);
     report.emit_tracing();
 }

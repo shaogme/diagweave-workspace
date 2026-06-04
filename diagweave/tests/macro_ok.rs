@@ -1,4 +1,4 @@
-use diagweave::{Report, set};
+use diagweave::{DiagnosticError, Report, set};
 
 set! {
     AuthError = {

@@ -15,7 +15,7 @@ mod utils;
 
 pub use diagweave_macros::{Error, set, union};
 pub use ref_str::{RefStr, StaticRefStr};
-pub use report::Report;
+pub use report::{DiagnosticResult, DiagnosticError, Report};
 
 #[cfg(doctest)]
 #[doc = include_str!("../../README.md")]
@@ -63,7 +63,7 @@ pub mod render {
 pub mod report {
     pub use crate::report_impl::{
         Attachment, AttachmentValue, AttachmentVisit, CauseCollectOptions, CauseKind,
-        CauseTraversalState, ContextMap, ContextValue, Diagnostic, DiagnosticError,
+        CauseTraversalState, ContextMap, ContextValue, DiagnosticResult, DiagnosticError,
         DisplayCauseChain, ErrorCode, ErrorCodeIntError, GlobalContext, GlobalErrorMeta,
         HasSeverity, IntoResult, MissingSeverity, Report, ReportMetadata, ReportOptions,
         ReportSourceErrorIter, ResultReportExt, Severity, SeverityParseError, SeverityState,
@@ -99,7 +99,7 @@ pub mod prelude {
         Compact, CompactProfile, Pretty, ReportRenderOptions, ReportRenderer, StackTraceFilter,
     };
     pub use crate::report::{
-        AttachmentValue, ContextMap, ContextValue, Diagnostic, DiagnosticError, HasSeverity,
+        AttachmentValue, ContextMap, ContextValue, DiagnosticResult, DiagnosticError, HasSeverity,
         MissingSeverity, Report, ResultReportExt, Severity, SeverityState, SourceErrorItem,
     };
     #[cfg(feature = "std")]

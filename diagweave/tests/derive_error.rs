@@ -1,4 +1,4 @@
-use diagweave::Report;
+use diagweave::{DiagnosticError, Report};
 
 #[derive(Debug, diagweave::Error)]
 enum ApiError {

@@ -1,4 +1,4 @@
-use diagweave::set;
+use diagweave::{DiagnosticError, set};
 
 set! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]

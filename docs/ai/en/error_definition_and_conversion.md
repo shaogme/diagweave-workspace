@@ -3,7 +3,7 @@
 ## 1. `set!` Macro
 
 ### Overview
-Used to define a series of structured error enums (Error Sets). It automatically implements composition logic between sets, `From` conversions, report semantics, and enum helpers (`to_report()`/`source()`/`diag()`).
+Used to define a series of structured error enums (Error Sets). It automatically implements composition logic between sets, `From` conversions, report semantics, and implements the `DiagnosticError` trait (providing `to_report()`/`diag()` default methods) as well as generating `source()` helper methods.
 
 ### Syntax Definition
 ```rust, ignore
@@ -44,7 +44,8 @@ set! {
 ### Generated Methods (Example: `AuthError`)
 | Declaration | Return Type | Description |
 | :--- | :--- | :--- |
-| `AuthError::to_report::<NewE>(self)` | `Report<NewE>` | Converts error instance into a report, optionally converting to target type (requires `Self: Into<NewE>`, defaults to `Self`) |
+| `DiagnosticError::to_report::<NewE>(self)` | `Report<NewE>` | (From `DiagnosticError` trait) Converts error instance into a report, optionally converting to target type (requires `Self: Into<NewE>`, defaults to `Self`) |
+| `DiagnosticError::diag(self, f)` | `Report<E2, State2>` | (From `DiagnosticError` trait) Shortcut entry for chaining diagnostic construction |
 | `AuthError::source(&self)` | `Option<&dyn Error>` | Access to the underlying error source |
 | `From<AuthError> for ServiceError` | `ServiceError` | Automatic mapping from subset to superset |
 
@@ -101,7 +102,7 @@ union! {
 - **Auto `Display`**: For external types, generates `match` branches calling `inner.fmt(f)`; for inline variants, generates rendering logic based on `#[display]`.
 - **Auto `Error`**: If `Debug` is not provided, `#[derive(Debug)]` is automatically attached.
 - **From Injection**: Injects `impl From<T> for Union` for every external member type.
-- **Helpers**: Generates `to_report::<NewE>()`, `source()`, and `diag()` on the union enum.
+- **Helpers & Traits**: Automatically implements `DiagnosticError` to provide `to_report::<NewE>()` and `diag()` default methods, and generates `source()` on the union enum.
 
 ---
 
@@ -121,9 +122,8 @@ Provides convenient implementations of `Display` and `std::error::Error` traits 
 Any type deriving `Error` automatically gains the following helper methods and trait implementations:
 | Declaration | Return Type/Trait | Description |
 | :--- | :--- | :--- |
-| `pub fn to_report::<NewE>(self)` | `Report<NewE>` | Converts to a report, optionally converting to target type (requires `Self: Into<NewE>`, defaults to `Self`) |
+| `impl DiagnosticError` | `DiagnosticError` | Implements `DiagnosticError` trait, which provides `to_report::<NewE>()` and `diag()` helper methods, and marks this client error type for automatic conversion to any compatible `Report<NewE>` via the `From` trait |
 | `pub fn source(&self)` | `Option<&dyn Error>` | Convenient access to the underlying error source |
-| `impl DiagnosticError` | `DiagnosticError` | Marks this client error type for automatic conversion to any compatible `Report<NewE>` via the `From` trait |
 
 Furthermore, macro-generated/derived types (`#[derive(Error)]`, `set!`, and `union!`) automatically implement the marker trait `DiagnosticError`. If the target error type satisfies `NewE: From<E>`, the raw error `E` can be directly converted into a diagnostic report:
 - `let report: Report<NewE> = raw_err.into();`
@@ -149,13 +149,13 @@ enum FileError {
 
 ---
 
-## 4. `Result` Extension Traits (`Diagnostic` / `ResultReportExt`)
+## 4. `Result` Extension Traits (`DiagnosticResult` / `ResultReportExt`)
 
 ### Overview
 Provides pipelines for seamless diagnostic info injection on error paths by implementing extension traits for `Result<T, E>` and `Result<T, Report<E>>`.
 
 ### Core Traits
-#### 1. `Diagnostic` (on `Result<T, E>`)
+#### 1. `DiagnosticResult` (on `Result<T, E>`)
 - `to_report_res<TargetE>()`: Lifts `Err(E)` to `Err(Report<TargetE>)`, supporting automatic conversion of the inner error (requires `E: Into<TargetE>`).
 - `to_report_note(msg)`: Lifts and injects note.
 - `diag_res(...)`: Short-hand for chaining a transformation on the error path. Generic signature:

@@ -8,7 +8,7 @@ This directory contains the detailed developer reference for the `diagweave` cor
    - `set!` Macro
    - `union!` Macro
    - `#[derive(Error)]` Derive Macro
-   - `Result` Extension Traits (`Diagnostic` / `ResultReportExt`)
+   - `Result` Extension Traits (`DiagnosticResult` / `ResultReportExt`)
    - Display Cause Collection
    - Log System Integration (`Tracing`)
    - Advanced Patterns

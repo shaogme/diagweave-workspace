@@ -2,10 +2,10 @@ use std::fmt::{Display, Formatter};
 use std::io;
 
 use diagweave::prelude::{
-    AttachmentValue, Compact, ContextValue, Diagnostic, Error, GlobalContext, HasSeverity,
-    ParentSpanId, Pretty, Report, ReportRenderOptions, ReportRenderer, ResultReportExt, Severity,
-    SeverityState, SpanId, TraceEventAttribute, TraceEventLevel, TraceId, register_global_injector,
-    set, union,
+    AttachmentValue, Compact, ContextValue, DiagnosticResult, DiagnosticError, Error, GlobalContext,
+    HasSeverity, ParentSpanId, Pretty, Report, ReportRenderOptions, ReportRenderer,
+    ResultReportExt, Severity, SeverityState, SpanId, TraceEventAttribute, TraceEventLevel,
+    TraceId, register_global_injector, set, union,
 };
 use diagweave::render::{Json, PrettyIndent, REPORT_JSON_SCHEMA_VERSION};
 use diagweave::report::{StackTrace, StackTraceFormat};
@@ -384,13 +384,15 @@ where
 fn demo_specialized_stores() {
     println!("--- Unified Display Causes ---");
 
-    let report = Result::<(), _>::Err(BaseError::NotFound { id: "item_1".into() })
-        .diag_res(|r| {
-            r.with_display_cause("cache invalidated")
-                .with_display_cause(io::Error::other("hardware failure"))
-                .attach_note("local processing delayed")
-        })
-        .expect_err("demo");
+    let report = Result::<(), _>::Err(BaseError::NotFound {
+        id: "item_1".into(),
+    })
+    .diag_res(|r| {
+        r.with_display_cause("cache invalidated")
+            .with_display_cause(io::Error::other("hardware failure"))
+            .attach_note("local processing delayed")
+    })
+    .expect_err("demo");
     println!("Report:\n{}\n", report.pretty());
 }
 
@@ -477,7 +479,9 @@ fn main() {
     println!("=== Diagweave Best-Practice Showcase ===\n");
     println!("Schema version: {}\n", REPORT_JSON_SCHEMA_VERSION);
 
-    let base = BaseError::NotFound { id: "user_123".into() };
+    let base = BaseError::NotFound {
+        id: "user_123".into(),
+    };
     println!("Base constructor: {}", base);
     let report_ctor = Report::new(AuthError::SessionExpired { user_id: 1001 });
     println!("Report helper constructor: {}\n", report_ctor);

@@ -8,7 +8,7 @@
    - `set!` 宏
    - `union!` 宏
    - `#[derive(Error)]` 派生宏
-   - `Result` 扩展特质 (`Diagnostic` / `ResultReportExt`)
+   - `Result` 扩展特质 (`DiagnosticResult` / `ResultReportExt`)
    - 展示原因收集
    - 日志系统集成 (`Tracing`)
    - 高阶模式

@@ -1,4 +1,4 @@
-use diagweave::{Report, union};
+use diagweave::{DiagnosticError, Report, union};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -74,7 +74,9 @@ fn wraps_external_error_types() {
 
 #[test]
 fn keeps_inline_variants() {
-    let api = ApiError::RateLimited { retry_after_secs: 10 };
+    let api = ApiError::RateLimited {
+        retry_after_secs: 10,
+    };
     match api {
         ApiError::RateLimited { retry_after_secs } => assert_eq!(retry_after_secs, 10),
         _ => panic!("unexpected variant"),
@@ -107,10 +109,14 @@ fn supports_alias_for_external_types() {
 #[test]
 fn union_display_works_for_wrapped_and_inline_variants() {
     let wrapped: ApiError = AuthError::InvalidToken.into();
-    let inline = ApiError::RateLimited { retry_after_secs: 12 };
+    let inline = ApiError::RateLimited {
+        retry_after_secs: 12,
+    };
     let transparent = ApiError::Transparent(42);
     let escaped = ApiError::TupleEscaped(88);
-    let internal = ApiError::Internal { message: "something broke".to_string() };
+    let internal = ApiError::Internal {
+        message: "something broke".to_string(),
+    };
     assert_eq!(wrapped.to_string(), "auth token invalid");
     assert_eq!(inline.to_string(), "Rate limited for 12s");
     assert_eq!(transparent.to_string(), "42");
@@ -132,7 +138,9 @@ fn from_attribute_generates_from_impls() {
 
 #[test]
 fn union_enum_provides_diag_helpers() {
-    let api = ApiError::RateLimited { retry_after_secs: 8 };
+    let api = ApiError::RateLimited {
+        retry_after_secs: 8,
+    };
     let report: Report<ApiError> = api.clone().to_report();
     assert_eq!(report.to_string(), "Rate limited for 8s");
     assert!(api.source().is_none());
@@ -147,7 +155,9 @@ fn test_generic_from_conversion_for_union_errors() {
     use diagweave::report::Report;
 
     // ApiError -> Report<OuterError>
-    let api = ApiError::RateLimited { retry_after_secs: 5 };
+    let api = ApiError::RateLimited {
+        retry_after_secs: 5,
+    };
     let report: Report<OuterError> = api.into();
 
     match report.inner() {
@@ -162,7 +172,9 @@ fn test_generic_from_conversion_for_union_errors() {
 fn test_union_to_report_trans() {
     use diagweave::report::Report;
 
-    let api = ApiError::RateLimited { retry_after_secs: 5 };
+    let api = ApiError::RateLimited {
+        retry_after_secs: 5,
+    };
     let report: Report<OuterError> = api.to_report();
 
     match report.inner() {

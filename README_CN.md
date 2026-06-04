@@ -80,7 +80,7 @@ diagweave = { version = "0.1", default-features = false }
 ## 快速开始
 
 ```rust
-use diagweave::prelude::{set, Diagnostic, Report, ResultReportExt};
+use diagweave::prelude::{set, DiagnosticResult, Report, ResultReportExt};
 
 set! {
     AuthError = {
@@ -150,7 +150,7 @@ set! {
 补充说明：
 - 枚举可见性遵循 `set!` 声明（`pub` / `pub(crate)` / 私有）
 - `set!` 顶层属性会保留在生成的 enum 上
-- 自动生成 `to_report()`、`source()`、以及 `diag()` 方法
+- 自动生成 `source()` 方法，并自动实现 `DiagnosticError` trait（提供 `to_report()` 和 `diag()` 默认方法）
 
 ## `union!`
 
@@ -197,7 +197,7 @@ union! {
 - 外部类型自动委托 `Display`
 - 支持 `as Alias` 覆盖默认变体名
 - 自动实现 `Error`，缺少 `Debug`时自动补充
-- 自动生成 `to_report()` 与 `source()` 方法
+- 自动生成 `source()` 方法，并自动实现 `DiagnosticError` trait（提供 `to_report()` 和 `diag()` 默认方法）
 
 ## 独立 `#[derive(Error)]`
 
@@ -217,7 +217,7 @@ pub enum MyError {
 }
 ```
 
-支持 `#[display("...")]`、`#[display(transparent)]`、`#[from]`、`#[source]`，并可直接接入 `to_report()`、`diag()`。 
+支持 `#[display("...")]`、`#[display(transparent)]`、`#[from]`、`#[source]`，并自动实现 `DiagnosticError` trait 以直接接入 `to_report()`、`diag()`。 
 
 ## `Report` 与链式 API
 
@@ -238,7 +238,7 @@ pub enum MyError {
 - 如果目标错误类型 `NewE` 实现了 `From<E>`，你可以直接使用 `.into()` 或利用 `?` 运算符直接将原始错误或其 `Result` 提升并转换为 `Report<NewE>`：
 - **链式显式转换 (`to_report_res`)**：
   - 在 `Result<T, E>` 上可以使用 `.to_report_res::<T, TargetE>()` 提升并直接转换内部错误类型为 `TargetE`（要求 `E: Into<TargetE>`）。
-  - 在宏生成的错误类型（`#[derive(Error)]`、`set!`、`union!`）上可以使用 `.to_report::<NewE>()` 便捷地一步直接构造目标报告对象（要求 `Self: Into<NewE>`）。
+  - 在宏生成的错误类型（`#[derive(Error)]`、`set!`、`union!`）上可以通过 `DiagnosticError` trait 提供的 `.to_report::<NewE>()` 便捷地一步直接构造目标报告对象（要求 `Self: Into<NewE>`）。
   ```rust
   # use diagweave::prelude::{set, Report};
   # set! {
@@ -343,7 +343,7 @@ use diagweave::render::{Compact, Pretty, ReportRenderOptions, StackTraceFilter};
 #         InvalidToken,
 #     }
 # }
-# let report = Report::new(AuthError::invalid_token());
+# let report = Report::new(AuthError::InvalidToken);
 
 let _ = report.render(Compact::summary()).to_string();
 let _ = report.render(Pretty::new(ReportRenderOptions::default())).to_string();
@@ -393,7 +393,7 @@ IR 与适配器：
 #         InvalidToken,
 #     }
 # }
-# let report = Report::new(AuthError::invalid_token())
+# let report = Report::new(AuthError::InvalidToken)
 #     .with_severity(Severity::Error);
 
 let ir = report.to_diagnostic_ir();
@@ -453,7 +453,7 @@ JSON 渲染（`json` feature）：
 #            InvalidToken,
 #        }
 #    }
-#    let report = Report::new(AuthError::invalid_token());
+#    let report = Report::new(AuthError::InvalidToken);
     let _ = report.render(Json::new(ReportRenderOptions::default())).to_string();
 }
 ```
@@ -492,7 +492,7 @@ tracing 导出：
 #            InvalidToken,
 #        }
 #    }
-#    let report = Report::new(AuthError::invalid_token())
+#    let report = Report::new(AuthError::InvalidToken)
 #        .with_severity(Severity::Error);
     report.emit_tracing();
 }

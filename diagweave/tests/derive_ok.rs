@@ -1,4 +1,4 @@
-use diagweave::{Error, Report};
+use diagweave::{DiagnosticError, Error, Report};
 
 #[derive(Debug, Error)]
 enum DemoError {

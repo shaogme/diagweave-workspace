@@ -8,11 +8,31 @@ use super::{
     ReportSourceErrorIter, Severity, SeverityState, StackTrace,
 };
 
-/// A marker trait for raw client error types that can be wrapped in a `Report`.
-///
-/// This trait is automatically implemented for error types using `#[derive(Error)]`,
-/// `set!`, or `union!`.
-pub trait DiagnosticError: Error {}
+pub trait DiagnosticError: Error + Send + Sync + 'static {
+    /// Converts the error into a `Report`.
+    fn to_report<NewE>(self) -> Report<NewE>
+    where
+        Self: Sized + Into<NewE>,
+        NewE: Error + Send + Sync + 'static,
+    {
+        Report::new(self.into())
+    }
+
+    /// Convenience: allow direct `.diag(...)` calls on client error types.
+    /// This is a generic variant that allows transforming both the error type
+    /// and the state type. When only adding metadata, no explicit type
+    /// annotations are needed.
+    fn diag<E2, State2>(
+        self,
+        f: impl FnOnce(Report<Self>) -> Report<E2, State2>,
+    ) -> Report<E2, State2>
+    where
+        Self: Sized,
+        State2: SeverityState,
+    {
+        f(self.to_report())
+    }
+}
 
 /// Helper trait to convert a type into a `Result`.
 pub trait IntoResult<T, E> {
@@ -32,7 +52,7 @@ impl<T, E: Error> IntoResult<T, E> for E {
 }
 
 /// A trait for types that can be converted into a diagnostic result.
-pub trait Diagnostic {
+pub trait DiagnosticResult {
     /// The error type.
     type Error;
 
@@ -94,7 +114,7 @@ pub trait Diagnostic {
     }
 }
 
-impl<T, E> Diagnostic for Result<T, E> {
+impl<T, E> DiagnosticResult for Result<T, E> {
     type Error = E;
 
     fn to_report_res<T2, TargetE>(self) -> Result<T2, Report<TargetE>>
@@ -108,7 +128,7 @@ impl<T, E> Diagnostic for Result<T, E> {
     }
 }
 
-impl<E> Diagnostic for E
+impl<E> DiagnosticResult for E
 where
     E: DiagnosticError,
 {
