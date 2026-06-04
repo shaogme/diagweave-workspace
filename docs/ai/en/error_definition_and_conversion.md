@@ -243,7 +243,7 @@ If `E1` implements `DiagnosticError` and can be converted into `E2` (i.e., `E1: 
 3. **`Report<E1, State>` -> `Report<E2, State>`**: Converts an existing `Report<E1>` into a `Report<E2>` of the target type, preserving all diagnostic context, attachments, and severity state.
 4. **`Report<E1, State>` -> `Result<T, Report<E2, State>>`**: Converts an existing `Report<E1>` into a `Result::Err` containing the mapped `Report<E2>`, while preserving all diagnostic context and attachments.
 5. **`Result<T, Report<E1, State>>` -> `Result<T, Report<E2, State>>`**: Converts a `Result` containing `Report<E1>` into a `Result` containing the mapped `Report<E2>`, while preserving all diagnostic context and state.
-
+6. **`Result<T, E1>` -> `Result<T, Report<E2>>`**: Converts a `Result` containing the raw error `E1` into a `Result` containing the target `Report<E2>`.
 
 ### Usage Example
 ```rust

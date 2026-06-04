@@ -473,3 +473,15 @@ where
         self.map_err(|r| r.map_err(|e| e.into()))
     }
 }
+
+impl<T, E1, E2> Transform<Result<T, Report<E2>>> for Result<T, E1>
+where
+    E1: DiagnosticError + Into<E2>,
+    E2: Error + Send + Sync + 'static,
+{
+    #[inline]
+    fn trans(self) -> Result<T, Report<E2>> {
+        self.map_err(|e| e.to_report_trans())
+    }
+}
+

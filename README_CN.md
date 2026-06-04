@@ -244,6 +244,8 @@ pub enum MyError {
   - 转换 `Report<E1, State>` -> `Report<E2, State>`: `let r2: Report<E2, State> = report.trans();`（转换 Report 的内部错误类型，保留所有上下文和状态）。
   - 转换 `Report<E1, State>` -> `Result<T, Report<E2, State>>`: `let res = report.trans();`（极其适用于架构边界的错误转换与传播）。
   - 转换 `Result<T, Report<E1, State>>` -> `Result<T, Report<E2, State>>`: `let res2 = result.trans();`（直接转换 Result 内部 Report 的错误类型，保留所有上下文和状态）。
+  - 转换 `Result<T, E1>` -> `Result<T, Report<E2>>`: `let res3 = result.trans();`（将包含原始错误 `E1` 的 `Result` 转换为包含目标类型 `Report<E2>` 的 `Result`）。
+
 - **链式显式转换 (`to_report_res` / `to_report_res_trans` / `to_report_trans`)**：
   - 在 `Result<T, E>` 上可以使用 `.to_report_res()` 提升内部错误为 `Report<E>`，或使用 `.to_report_res_trans::<_, TargetE>()` 提升并直接转换内部错误类型为 `TargetE`（要求 `E: Into<TargetE>`）。
   - 在宏生成的错误类型（`#[derive(Error)]`、`set!`、`union!`）上可以使用 `.to_report()` 直接构造 `Report<Self>` 报告对象，或通过 `DiagnosticError` trait 提供的 `.to_report_trans::<NewE>()` 便捷地一步直接构造目标报告对象（要求 `Self: Into<NewE>`）。

@@ -240,7 +240,7 @@ fn boundary_op_simplified() -> Result<String, Report<ApiError>> {
 3. **`Report<E1, State>` -> `Report<E2, State>`**：将已有的 `Report<E1>` 转换为目标类型的 `Report<E2>`，保留所有诊断上下文、附件和 Severity 状态。
 4. **`Report<E1, State>` -> `Result<T, Report<E2, State>>`**：将已有的 `Report<E1>` 转换为包含映射后 `Report<E2>` 的 `Result::Err`，同时保留所有诊断上下文和附件。
 5. **`Result<T, Report<E1, State>>` -> `Result<T, Report<E2, State>>`**：将包含 `Report<E1>` 的 `Result` 转换为包含 `Report<E2>` 的 `Result`，保留所有诊断上下文和状态。
-
+6. **`Result<T, E1>` -> `Result<T, Report<E2>>`**：将包含原始错误 `E1` 的 `Result` 转换为包含目标类型 `Report<E2>` 的 `Result`。
 
 ### 示例用法
 ```rust
