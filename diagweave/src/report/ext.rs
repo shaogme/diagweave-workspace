@@ -217,6 +217,55 @@ where
         Self: Sized + IntoResult<T, Report<E, State>>;
 
     for_each_report_builder_method!(define_ext_method);
+
+    /// Returns a reference to the inner `Report` on the error path, or `None`.
+    fn report_ref(&self) -> Option<&Report<E, State>>;
+
+    /// Returns a reference to the inner error on the error path, or `None`.
+    fn report_inner(&self) -> Option<&E>;
+
+    /// Returns the report's attachments on the error path, or `None`.
+    fn report_attachments(&self) -> Option<&[Attachment]>;
+
+    /// Returns the report's context on the error path, or `None`.
+    fn report_context(&self) -> Option<&ContextMap>;
+
+    /// Returns the report's system context on the error path, or `None`.
+    fn report_system(&self) -> Option<&ContextMap>;
+
+    /// Returns the report's metadata on the error path, or `None`.
+    fn report_metadata(&self) -> Option<&ReportMetadata<State>>;
+
+    /// Returns the report's error code on the error path, or `None`.
+    fn report_error_code(&self) -> Option<&ErrorCode>;
+
+    /// Returns the report's severity on the error path, or `None`.
+    fn report_severity(&self) -> Option<Severity>;
+
+    /// Returns the report's category on the error path, or `None`.
+    fn report_category(&self) -> Option<&str>;
+
+    /// Returns whether the report is retryable on the error path, or `None`.
+    fn report_retryable(&self) -> Option<bool>;
+
+    /// Returns the report's stack trace on the error path, or `None`.
+    fn report_stack_trace(&self) -> Option<&StackTrace>;
+
+    /// Returns the report's options on the error path, or `None`.
+    fn report_options(&self) -> Option<&ReportOptions>;
+
+    /// Returns the report's display causes on the error path, or `None`.
+    fn report_display_causes(&self) -> Option<&[Arc<dyn core::fmt::Display + Send + Sync>]>;
+
+    /// Returns an iterator over the report's origin source errors on the error path, or `None`.
+    fn report_iter_origin_sources(&self) -> Option<ReportSourceErrorIter<'_>>
+    where
+        E: Error;
+
+    /// Returns an iterator over the report's diagnostic source errors on the error path, or `None`.
+    fn report_iter_diag_sources(&self) -> Option<ReportSourceErrorIter<'_>>
+    where
+        E: Error;
 }
 
 impl<T, E, State> ResultReportExt<E, State> for Result<T, Report<E, State>>
@@ -261,72 +310,7 @@ where
     }
 
     for_each_report_builder_method!(impl_ext_method);
-}
 
-/// Read-only inspection trait for `Result<T, Report<E, State>>`.
-///
-/// Provides convenient accessors that return `None` on the `Ok` path,
-/// avoiding the need to manually match before reading report fields.
-pub trait InspectReportExt<E, State = MissingSeverity>
-where
-    State: SeverityState,
-{
-    /// Returns a reference to the inner `Report` on the error path, or `None`.
-    fn report_ref(&self) -> Option<&Report<E, State>>;
-
-    /// Returns a reference to the inner error on the error path, or `None`.
-    fn report_inner(&self) -> Option<&E>;
-
-    /// Returns the report's attachments on the error path, or `None`.
-    fn report_attachments(&self) -> Option<&[Attachment]>;
-
-    /// Returns the report's context on the error path, or `None`.
-    fn report_context(&self) -> Option<&ContextMap>;
-
-    /// Returns the report's system context on the error path, or `None`.
-    fn report_system(&self) -> Option<&ContextMap>;
-
-    /// Returns the report's metadata on the error path, or `None`.
-    fn report_metadata(&self) -> Option<&ReportMetadata<State>>;
-
-    /// Returns the report's error code on the error path, or `None`.
-    fn report_error_code(&self) -> Option<&ErrorCode>;
-
-    /// Returns the report's severity on the error path, or `None`.
-    fn report_severity(&self) -> Option<Severity>;
-
-    /// Returns the report's category on the error path, or `None`.
-    fn report_category(&self) -> Option<&str>;
-
-    /// Returns whether the report is retryable on the error path, or `None`.
-    fn report_retryable(&self) -> Option<bool>;
-
-    /// Returns the report's stack trace on the error path, or `None`.
-    fn report_stack_trace(&self) -> Option<&StackTrace>;
-
-    /// Returns the report's options on the error path, or `None`.
-    fn report_options(&self) -> Option<&ReportOptions>;
-
-    /// Returns the report's display causes on the error path, or `None`.
-    fn report_display_causes(
-        &self,
-    ) -> Option<&[Arc<dyn core::fmt::Display + Send + Sync>]>;
-
-    /// Returns an iterator over the report's origin source errors on the error path, or `None`.
-    fn report_iter_origin_sources(&self) -> Option<ReportSourceErrorIter<'_>>
-    where
-        E: Error;
-
-    /// Returns an iterator over the report's diagnostic source errors on the error path, or `None`.
-    fn report_iter_diag_sources(&self) -> Option<ReportSourceErrorIter<'_>>
-    where
-        E: Error;
-}
-
-impl<T, E, State> InspectReportExt<E, State> for Result<T, Report<E, State>>
-where
-    State: SeverityState,
-{
     fn report_ref(&self) -> Option<&Report<E, State>> {
         self.as_ref().err()
     }
@@ -375,9 +359,7 @@ where
         self.report_ref().map(Report::<E, State>::options)
     }
 
-    fn report_display_causes(
-        &self,
-    ) -> Option<&[Arc<dyn core::fmt::Display + Send + Sync>]> {
+    fn report_display_causes(&self) -> Option<&[Arc<dyn core::fmt::Display + Send + Sync>]> {
         self.report_ref().map(Report::<E, State>::display_causes)
     }
 

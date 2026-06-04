@@ -91,17 +91,16 @@ where
         let metadata = Report::<E, State>::metadata(self);
         let has_metadata = metadata.has_metadata();
         let diag: &super::DiagnosticBag = Report::<E, State>::diagnostics(self);
-        let has_diagnostics = diag.has_diagnostics()
-            || {
-                #[cfg(feature = "trace")]
-                {
-                    !Report::<E, State>::trace(self).is_empty()
-                }
-                #[cfg(not(feature = "trace"))]
-                {
-                    false
-                }
-            };
+        let has_diagnostics = diag.has_diagnostics() || {
+            #[cfg(feature = "trace")]
+            {
+                !Report::<E, State>::trace(self).is_empty()
+            }
+            #[cfg(not(feature = "trace"))]
+            {
+                false
+            }
+        };
         if !has_diagnostics && !has_metadata {
             return Ok(());
         }

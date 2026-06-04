@@ -64,9 +64,9 @@ pub mod report {
         Attachment, AttachmentValue, AttachmentVisit, CauseCollectOptions, CauseKind,
         CauseTraversalState, ContextMap, ContextValue, Diagnostic, DiagnosticError,
         DisplayCauseChain, ErrorCode, ErrorCodeIntError, GlobalContext, GlobalErrorMeta,
-        HasSeverity, InspectReportExt, IntoResult, MissingSeverity, Report, ReportMetadata,
-        ReportOptions, ReportSourceErrorIter, ResultReportExt, Severity, SeverityParseError,
-        SeverityState, SourceErrorChain, SourceErrorEntry, SourceErrorItem, StackFrame, StackTrace,
+        HasSeverity, IntoResult, MissingSeverity, Report, ReportMetadata, ReportOptions,
+        ReportSourceErrorIter, ResultReportExt, Severity, SeverityParseError, SeverityState,
+        SourceErrorChain, SourceErrorEntry, SourceErrorItem, StackFrame, StackTrace,
         StackTraceFormat,
     };
     #[cfg(feature = "std")]
@@ -99,8 +99,7 @@ pub mod prelude {
     };
     pub use crate::report::{
         AttachmentValue, ContextMap, ContextValue, Diagnostic, DiagnosticError, HasSeverity,
-        InspectReportExt, MissingSeverity, Report, ResultReportExt, Severity, SeverityState,
-        SourceErrorItem,
+        MissingSeverity, Report, ResultReportExt, Severity, SeverityState, SourceErrorItem,
     };
     #[cfg(feature = "std")]
     pub use crate::report::{GlobalContext, register_global_injector};
