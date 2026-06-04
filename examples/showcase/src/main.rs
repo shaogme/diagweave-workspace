@@ -2,8 +2,8 @@ use std::fmt::{Display, Formatter};
 use std::io;
 
 use diagweave::prelude::{
-    AttachmentValue, Compact, ContextValue, DiagnosticResult, DiagnosticError, Error, GlobalContext,
-    HasSeverity, ParentSpanId, Pretty, Report, ReportRenderOptions, ReportRenderer,
+    AttachmentValue, Compact, ContextValue, DiagnosticError, DiagnosticResult, Error,
+    GlobalContext, HasSeverity, ParentSpanId, Pretty, Report, ReportRenderOptions, ReportRenderer,
     ResultReportExt, Severity, SeverityState, SpanId, TraceEventAttribute, TraceEventLevel,
     TraceId, register_global_injector, set, union,
 };
