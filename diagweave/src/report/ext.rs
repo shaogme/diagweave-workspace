@@ -265,7 +265,7 @@ where
 ///
 /// Provides convenient accessors that return `None` on the `Ok` path,
 /// avoiding the need to manually match before reading report fields.
-pub trait InspectReportExt<T, E, State = MissingSeverity>
+pub trait InspectReportExt<E, State = MissingSeverity>
 where
     State: SeverityState,
 {
@@ -321,7 +321,7 @@ where
         E: Error;
 }
 
-impl<T, E, State> InspectReportExt<T, E, State> for Result<T, Report<E, State>>
+impl<T, E, State> InspectReportExt<E, State> for Result<T, Report<E, State>>
 where
     State: SeverityState,
 {
