@@ -42,8 +42,6 @@ mod macros;
 mod accessors;
 #[path = "report/builder.rs"]
 mod builder;
-#[path = "report/traits.rs"]
-mod traits;
 #[path = "report/global.rs"]
 mod global;
 #[path = "report/impls.rs"]
@@ -51,6 +49,8 @@ mod impls;
 #[cfg(feature = "trace")]
 #[path = "report/trace.rs"]
 mod trace;
+#[path = "report/traits.rs"]
+mod traits;
 #[path = "report/transform.rs"]
 mod transform;
 #[path = "report/types.rs"]

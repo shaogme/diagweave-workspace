@@ -229,7 +229,7 @@ where
     {
         self.into_result().map_err(|r| r.map_err(f))
     }
-    
+
     /// Consumes the result and returns the inner error if it's an error,
     /// discarding all diagnostic information.
     fn into_inner_err<T>(self) -> Result<T, E>
@@ -455,4 +455,3 @@ where
         self.map_err(|r| r.map_err(|e| e.into()))
     }
 }
-
