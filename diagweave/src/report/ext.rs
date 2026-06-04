@@ -12,19 +12,36 @@ use super::{
 /// `set!`, or `union!`.
 pub trait DiagnosticError {}
 
+/// Helper trait to convert a type into a `Result`.
+pub trait IntoResult<T, E> {
+    fn into_result(self) -> Result<T, E>;
+}
+
+impl<T, E> IntoResult<T, E> for Result<T, E> {
+    fn into_result(self) -> Self {
+        self
+    }
+}
+
+impl<T, E> IntoResult<T, E> for E {
+    fn into_result(self) -> Result<T, E> {
+        Err(self)
+    }
+}
+
 /// A trait for types that can be converted into a diagnostic result.
 pub trait Diagnostic {
-    /// The success value type.
-    type Value;
     /// The error type.
     type Error;
 
-    fn to_report(self) -> Result<Self::Value, Report<Self::Error>>;
+    fn to_report<T>(self) -> Result<T, Report<Self::Error>>
+    where
+        Self: Sized + IntoResult<T, Self::Error>;
 
     /// Converts the inner error to a different type via `Into` while wrapping in a `Report`.
-    fn to_report_trans<NewE>(self) -> Result<Self::Value, Report<NewE>>
+    fn to_report_trans<T, NewE>(self) -> Result<T, Report<NewE>>
     where
-        Self: Sized,
+        Self: Sized + IntoResult<T, Self::Error>,
         Self::Error: Into<NewE>,
         Self::Error: Error + Send + Sync + 'static,
         NewE: Error + Send + Sync + 'static,
@@ -53,23 +70,23 @@ pub trait Diagnostic {
     ///     r.map_err(|_| ApiError::Unauthorized)
     /// });
     /// ```
-    fn diag<E2, State2>(
+    fn diag<T, E2, State2>(
         self,
         f: impl FnOnce(Report<Self::Error>) -> Report<E2, State2>,
-    ) -> Result<Self::Value, Report<E2, State2>>
+    ) -> Result<T, Report<E2, State2>>
     where
-        Self: Sized,
+        Self: Sized + IntoResult<T, Self::Error>,
         State2: SeverityState,
     {
         self.to_report().map_err(f)
     }
 
-    fn to_report_note(
+    fn to_report_note<T>(
         self,
         message: impl Display + Send + Sync + 'static,
-    ) -> Result<Self::Value, Report<Self::Error>>
+    ) -> Result<T, Report<Self::Error>>
     where
-        Self: Sized,
+        Self: Sized + IntoResult<T, Self::Error>,
     {
         self.to_report().map_report(
             |report: Report<Self::Error, MissingSeverity>| -> Report<Self::Error, MissingSeverity> {
@@ -80,11 +97,13 @@ pub trait Diagnostic {
 }
 
 impl<T, E> Diagnostic for Result<T, E> {
-    type Value = T;
     type Error = E;
 
-    fn to_report(self) -> Result<Self::Value, Report<Self::Error>> {
-        self.map_err(Report::new)
+    fn to_report<T2>(self) -> Result<T2, Report<Self::Error>>
+    where
+        Self: Sized + IntoResult<T2, Self::Error>,
+    {
+        self.into_result().map_err(Report::new)
     }
 }
 

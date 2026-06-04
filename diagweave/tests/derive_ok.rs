@@ -88,7 +88,7 @@ fn test_generic_from_conversion_for_report() {
 fn test_res_to_report_trans() {
     use diagweave::prelude::*;
     let res: Result<(), DemoError> = Err(DemoError::NotFound { id: 101 });
-    let report_res: Result<(), Report<AppError>> = res.to_report_trans::<AppError>();
+    let report_res: Result<(), Report<AppError>> = res.to_report_trans::<_, AppError>();
 
     assert!(report_res.is_err());
     let report = report_res.unwrap_err();

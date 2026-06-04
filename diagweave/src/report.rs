@@ -59,7 +59,7 @@ mod types;
 use alloc::boxed::Box;
 use core::error::Error;
 
-pub use ext::{Diagnostic, DiagnosticError, InspectReportExt, ResultReportExt};
+pub use ext::{Diagnostic, DiagnosticError, IntoResult, InspectReportExt, ResultReportExt};
 pub use types::{
     Attachment, AttachmentValue, CauseCollectOptions, CauseKind, ContextMap, ContextValue,
     DiagnosticBag, DisplayCauseChain, ErrorCode, ErrorCodeIntError, GlobalErrorMeta, HasSeverity,

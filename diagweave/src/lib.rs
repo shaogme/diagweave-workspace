@@ -64,10 +64,10 @@ pub mod report {
         Attachment, AttachmentValue, AttachmentVisit, CauseCollectOptions, CauseKind,
         CauseTraversalState, ContextMap, ContextValue, Diagnostic, DiagnosticError,
         DisplayCauseChain, ErrorCode, ErrorCodeIntError, GlobalContext, GlobalErrorMeta,
-        HasSeverity, InspectReportExt, MissingSeverity, Report, ReportMetadata, ReportOptions,
-        ReportSourceErrorIter, ResultReportExt, Severity, SeverityParseError, SeverityState,
-        SourceErrorChain, SourceErrorEntry, SourceErrorItem, StackFrame, StackTrace,
-        StackTraceFormat,
+        HasSeverity, InspectReportExt, IntoResult, MissingSeverity, Report, ReportMetadata,
+        ReportOptions, ReportSourceErrorIter, ResultReportExt, Severity, SeverityParseError,
+        SeverityState, SourceErrorChain, SourceErrorEntry, SourceErrorItem, StackFrame,
+        StackTrace, StackTraceFormat,
     };
     #[cfg(feature = "std")]
     pub use crate::report_impl::{
