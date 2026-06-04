@@ -111,6 +111,12 @@ impl From<i32> for AttachmentValue {
     }
 }
 
+impl From<isize> for AttachmentValue {
+    fn from(value: isize) -> Self {
+        Self::Integer(value as i64)
+    }
+}
+
 impl From<i64> for AttachmentValue {
     fn from(value: i64) -> Self {
         Self::Integer(value)
@@ -131,6 +137,12 @@ impl From<u16> for AttachmentValue {
 
 impl From<u32> for AttachmentValue {
     fn from(value: u32) -> Self {
+        Self::Unsigned(value as u64)
+    }
+}
+
+impl From<usize> for AttachmentValue {
+    fn from(value: usize) -> Self {
         Self::Unsigned(value as u64)
     }
 }
