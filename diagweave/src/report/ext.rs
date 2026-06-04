@@ -107,6 +107,20 @@ impl<T, E> Diagnostic for Result<T, E> {
     }
 }
 
+impl<E> Diagnostic for E
+where
+    E: DiagnosticError,
+{
+    type Error = E;
+
+    fn to_report<T2>(self) -> Result<T2, Report<Self::Error>>
+    where
+        Self: Sized + IntoResult<T2, Self::Error>,
+    {
+        self.into_result().map_err(Report::new)
+    }
+}
+
 /// Extension trait for `Result<T, Report<E, State>>` to apply diagnostic transformations
 /// only on the error path, without duplicating every `Report` method.
 ///
