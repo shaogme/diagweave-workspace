@@ -65,14 +65,14 @@
 
 ```toml
 [dependencies]
-diagweave = "0.3"
+diagweave = "0.4"
 ```
 
 如果不需要默认 feature：
 
 ```toml
 [dependencies]
-diagweave = { version = "0.3", default-features = false }
+diagweave = { version = "0.4", default-features = false }
 ```
 
 关闭默认 feature 后支持 `no_std + alloc`。
