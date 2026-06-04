@@ -157,15 +157,15 @@ where
     /// on the error path of a `Result`.
     fn map_inner_err<NewE>(self, f: impl FnOnce(E) -> NewE) -> Result<T, Report<NewE, State>>
     where
-        E: core::error::Error + Send + Sync + 'static,
-        NewE: core::error::Error + Send + Sync + 'static;
+        E: Error + Send + Sync + 'static,
+        NewE: Error + Send + Sync + 'static;
 
     /// A convenient shortcut to convert the inner error to a different type via `Into`.
     fn trans_inner_err<NewE>(self) -> Result<T, Report<NewE, State>>
     where
-        E: core::error::Error + Send + Sync + 'static,
+        E: Error + Send + Sync + 'static,
         E: Into<NewE>,
-        NewE: core::error::Error + Send + Sync + 'static;
+        NewE: Error + Send + Sync + 'static;
 
     /// Consumes the result and returns the inner error if it's an error,
     /// discarding all diagnostic information.
@@ -190,17 +190,17 @@ where
 
     fn map_inner_err<NewE>(self, f: impl FnOnce(E) -> NewE) -> Result<T, Report<NewE, State>>
     where
-        E: core::error::Error + Send + Sync + 'static,
-        NewE: core::error::Error + Send + Sync + 'static,
+        E: Error + Send + Sync + 'static,
+        NewE: Error + Send + Sync + 'static,
     {
         self.map_err(|r| r.map_err(f))
     }
 
     fn trans_inner_err<NewE>(self) -> Result<T, Report<NewE, State>>
     where
-        E: core::error::Error + Send + Sync + 'static,
+        E: Error + Send + Sync + 'static,
         E: Into<NewE>,
-        NewE: core::error::Error + Send + Sync + 'static,
+        NewE: Error + Send + Sync + 'static,
     {
         self.map_err(|r| r.map_err(|e| e.into()))
     }
@@ -264,12 +264,12 @@ where
     /// Returns an iterator over the report's origin source errors on the error path, or `None`.
     fn report_iter_origin_sources(&self) -> Option<ReportSourceErrorIter<'_>>
     where
-        E: core::error::Error;
+        E: Error;
 
     /// Returns an iterator over the report's diagnostic source errors on the error path, or `None`.
     fn report_iter_diag_sources(&self) -> Option<ReportSourceErrorIter<'_>>
     where
-        E: core::error::Error;
+        E: Error;
 }
 
 impl<T, E, State> InspectReportExt<T, E, State> for Result<T, Report<E, State>>
@@ -332,7 +332,7 @@ where
 
     fn report_iter_origin_sources(&self) -> Option<ReportSourceErrorIter<'_>>
     where
-        E: core::error::Error,
+        E: Error,
     {
         self.report_ref()
             .map(Report::<E, State>::iter_origin_sources)
@@ -340,7 +340,7 @@ where
 
     fn report_iter_diag_sources(&self) -> Option<ReportSourceErrorIter<'_>>
     where
-        E: core::error::Error,
+        E: Error,
     {
         self.report_ref().map(Report::<E, State>::iter_diag_sources)
     }
