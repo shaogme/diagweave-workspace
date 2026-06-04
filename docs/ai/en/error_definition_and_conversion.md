@@ -193,6 +193,8 @@ The closure receives an owned `Report` and must return an owned `Report`. On the
 # fn verify(user_id: u64) -> Result<String, AuthError> {
 #     Ok("success".to_string())
 # }
+# #[cfg(feature = "std")]
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 use diagweave::prelude::*;
 use std::{fs, io};
 use std::time::SystemTime;
@@ -225,6 +227,10 @@ fn boundary_op_simplified() -> Result<String, Report<ApiError>> {
     let res = verify(7)?;
     Ok(res)
 }
+# Ok(())
+# }
+# #[cfg(not(feature = "std"))]
+# fn main() {}
 ```
 
 ## 5. Universal Conversion Trait (`Transform`)
