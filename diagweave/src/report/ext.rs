@@ -130,9 +130,11 @@ macro_rules! define_ext_method {
         $(#[$attr])*
         fn $name <$($gen),*> (self, $($arg: $ty),*) -> Self where $($bound)*;
     };
-    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty $(,)? )* ) -> $ret:ty [STATE_CHANGE]) => {
+    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty $(,)? )* ) -> Result<T, $report:ty> [STATE_CHANGE]) => {
         $(#[$attr])*
-        fn $name(self, $($arg: $ty),*) -> $ret;
+        fn $name<T>(self, $($arg: $ty),*) -> Result<T, $report>
+        where
+            Self: Sized + IntoResult<T, Report<E, State>>;
     };
 }
 
@@ -147,14 +149,17 @@ macro_rules! impl_ext_method {
             self.map_err(|r| r.$name($($arg),*))
         }
     };
-    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty $(,)? )* ) -> $ret:ty [STATE_CHANGE]) => {
-        fn $name(self, $($arg: $ty),*) -> $ret {
-            self.map_err(|r| r.$name($($arg),*))
+    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty $(,)? )* ) -> Result<T, $report:ty> [STATE_CHANGE]) => {
+        fn $name<T2>(self, $($arg: $ty),*) -> Result<T2, $report>
+        where
+            Self: Sized + IntoResult<T2, Report<E, State>>
+        {
+            self.into_result().map_err(|r| r.$name($($arg),*))
         }
     };
 }
 
-pub trait ResultReportExt<T, E, State = MissingSeverity>
+pub trait ResultReportExt<E, State = MissingSeverity>
 where
     State: SeverityState,
 {
@@ -163,69 +168,80 @@ where
     /// The closure receives an owned `Report` and must return an owned `Report`
     /// of any error and state type. If the result is `Ok`, the
     /// closure is never invoked.
-    fn map_report<NewE, NewState>(
+    fn map_report<T, NewE, NewState>(
         self,
         f: impl FnOnce(Report<E, State>) -> Report<NewE, NewState>,
     ) -> Result<T, Report<NewE, NewState>>
     where
+        Self: Sized + IntoResult<T, Report<E, State>>,
         NewState: SeverityState;
 
     /// Maps the inner error type of the report while preserving all diagnostic data.
     ///
     /// This is a convenience wrapper around [`Report::map_err`] that operates
     /// on the error path of a `Result`.
-    fn map_inner_err<NewE>(self, f: impl FnOnce(E) -> NewE) -> Result<T, Report<NewE, State>>
+    fn map_inner_err<T, NewE>(self, f: impl FnOnce(E) -> NewE) -> Result<T, Report<NewE, State>>
     where
+        Self: Sized + IntoResult<T, Report<E, State>>,
         E: Error + Send + Sync + 'static,
         NewE: Error + Send + Sync + 'static;
 
     /// A convenient shortcut to convert the inner error to a different type via `Into`.
-    fn trans_inner_err<NewE>(self) -> Result<T, Report<NewE, State>>
+    fn trans_inner_err<T, NewE>(self) -> Result<T, Report<NewE, State>>
     where
+        Self: Sized + IntoResult<T, Report<E, State>>,
         E: Error + Send + Sync + 'static,
         E: Into<NewE>,
         NewE: Error + Send + Sync + 'static;
 
     /// Consumes the result and returns the inner error if it's an error,
     /// discarding all diagnostic information.
-    fn into_inner_err(self) -> Result<T, E>;
+    fn into_inner_err<T>(self) -> Result<T, E>
+    where
+        Self: Sized + IntoResult<T, Report<E, State>>;
 
     for_each_report_builder_method!(define_ext_method);
 }
 
-impl<T, E, State> ResultReportExt<T, E, State> for Result<T, Report<E, State>>
+impl<T, E, State> ResultReportExt<E, State> for Result<T, Report<E, State>>
 where
     State: SeverityState,
 {
-    fn map_report<NewE, NewState>(
+    fn map_report<T2, NewE, NewState>(
         self,
         f: impl FnOnce(Report<E, State>) -> Report<NewE, NewState>,
-    ) -> Result<T, Report<NewE, NewState>>
+    ) -> Result<T2, Report<NewE, NewState>>
     where
+        Self: Sized + IntoResult<T2, Report<E, State>>,
         NewState: SeverityState,
     {
-        self.map_err(f)
+        self.into_result().map_err(f)
     }
 
-    fn map_inner_err<NewE>(self, f: impl FnOnce(E) -> NewE) -> Result<T, Report<NewE, State>>
+    fn map_inner_err<T2, NewE>(self, f: impl FnOnce(E) -> NewE) -> Result<T2, Report<NewE, State>>
     where
+        Self: Sized + IntoResult<T2, Report<E, State>>,
         E: Error + Send + Sync + 'static,
         NewE: Error + Send + Sync + 'static,
     {
-        self.map_err(|r| r.map_err(f))
+        self.into_result().map_err(|r| r.map_err(f))
     }
 
-    fn trans_inner_err<NewE>(self) -> Result<T, Report<NewE, State>>
+    fn trans_inner_err<T2, NewE>(self) -> Result<T2, Report<NewE, State>>
     where
+        Self: Sized + IntoResult<T2, Report<E, State>>,
         E: Error + Send + Sync + 'static,
         E: Into<NewE>,
         NewE: Error + Send + Sync + 'static,
     {
-        self.map_err(|r| r.map_err(|e| e.into()))
+        self.into_result().map_err(|r| r.map_err(|e| e.into()))
     }
 
-    fn into_inner_err(self) -> Result<T, E> {
-        self.map_err(|r| r.into_inner())
+    fn into_inner_err<T2>(self) -> Result<T2, E>
+    where
+        Self: Sized + IntoResult<T2, Report<E, State>>,
+    {
+        self.into_result().map_err(|r| r.into_inner())
     }
 
     for_each_report_builder_method!(impl_ext_method);
