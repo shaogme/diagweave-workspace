@@ -12,7 +12,7 @@ use super::{
 ///
 /// This trait is automatically implemented for error types using `#[derive(Error)]`,
 /// `set!`, or `union!`.
-pub trait DiagnosticError {}
+pub trait DiagnosticError: Error {}
 
 /// Helper trait to convert a type into a `Result`.
 pub trait IntoResult<T, E> {
@@ -25,7 +25,7 @@ impl<T, E> IntoResult<T, E> for Result<T, E> {
     }
 }
 
-impl<T, E> IntoResult<T, E> for E {
+impl<T, E: Error> IntoResult<T, E> for E {
     fn into_result(self) -> Result<T, E> {
         Err(self)
     }
