@@ -4,39 +4,20 @@ use syn::{
     punctuated::Punctuated,
 };
 
-use crate::shared::options::DiagweaveOptions;
-
 pub(crate) struct SetInput {
-    pub(crate) attrs: Vec<Attribute>,
     pub(crate) decls: Vec<SetDecl>,
 }
 
 impl Parse for SetInput {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
-        let mut attrs = Vec::new();
-        while input.peek(Token![#]) {
-            let fork = input.fork();
-            let attr_vec = fork.call(Attribute::parse_outer)?;
-            if let Some(first) = attr_vec.first() {
-                if first.path().is_ident("diagweave") {
-                    attrs.extend(input.call(Attribute::parse_outer)?);
-                } else {
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
         let mut decls = Vec::new();
         while !input.is_empty() {
             let decl = input.parse::<SetDecl>()?;
             decls.push(decl);
         }
-        Ok(Self { attrs, decls })
+        Ok(Self { decls })
     }
 }
-
-pub(crate) type SetOptions = DiagweaveOptions;
 
 #[derive(Clone)]
 pub(crate) struct SetDecl {

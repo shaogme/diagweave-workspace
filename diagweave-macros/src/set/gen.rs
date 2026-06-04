@@ -3,17 +3,15 @@ use quote::{format_ident, quote};
 use std::collections::BTreeMap;
 use syn::{Error, Ident, Result, Variant};
 
-use crate::set::parser::SetOptions;
 use crate::set::resolver::{ResolvedSet, ResolvedVariant};
 use crate::shared::codegen::enum_impl_helpers;
-use crate::shared::constructors::gen_variant_ctors;
 use crate::shared::derive::merge_debug_derive;
 use crate::shared::display::display_arm;
 use crate::shared::from_attr::{from_variant_source, is_from_variant};
 use crate::shared::sanitize::sanitize_variant_attrs;
 use crate::shared::source::source_arm_for_variant;
 
-pub(crate) fn generate_enum_impl(set: &ResolvedSet, options: &SetOptions) -> Result<TokenStream> {
+pub(crate) fn generate_enum_impl(set: &ResolvedSet) -> Result<TokenStream> {
     let enum_ident = &set.name;
     let vis = &set.vis;
     let variants: Vec<Variant> = set
@@ -31,22 +29,12 @@ pub(crate) fn generate_enum_impl(set: &ResolvedSet, options: &SetOptions) -> Res
         .iter()
         .map(|v| source_arm_for_variant(enum_ident, &v.variant))
         .collect::<Result<Vec<_>>>()?;
-    let raw_variants: Vec<Variant> = set.variants.iter().map(|v| v.variant.clone()).collect();
-    let constructors = gen_variant_ctors(
-        enum_ident,
-        &raw_variants,
-        &options.report_path,
-        &options.constructor_prefix,
-    )?;
     let variant_from_impls = from_impls_for_variants(enum_ident, &set.variants)?;
     let merged_attrs = merge_debug_derive(set.attrs.clone())?;
     let enum_impl_helpers = enum_impl_helpers(enum_ident, &source_arms);
     Ok(quote! {
         #(#merged_attrs)*
         #vis enum #enum_ident { #(#variants),* }
-        impl #enum_ident {
-            #(#constructors)*
-        }
         #enum_impl_helpers
         impl ::core::fmt::Display for #enum_ident {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {

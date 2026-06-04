@@ -1,22 +1,5 @@
 use diagweave::{Report, set};
 
-mod custom_runtime {
-    /// A simple wrapper for testing.
-    pub struct Bag<T>(T);
-
-    impl<T> Bag<T> {
-        /// Creates a new Bag.
-        pub fn new(inner: T) -> Self {
-            Self(inner)
-        }
-
-        /// Returns the inner value.
-        pub fn into_inner(self) -> T {
-            self.0
-        }
-    }
-}
-
 set! {
     AuthError = {
         #[display("Invalid authentication token")]
@@ -34,7 +17,6 @@ set! {
 }
 
 set! {
-    #[diagweave(constructor_prefix = "new")]
     PrefixError = {
         #[display("Invalid token for {user_id}")]
         InvalidToken { user_id: u64 },
@@ -52,7 +34,6 @@ set! {
 }
 
 set! {
-    #[diagweave(report_path = "crate::custom_runtime::Bag")]
     CustomPathError = {
         #[display("Custom runtime path works")]
         Works,
@@ -113,41 +94,6 @@ fn display_attribute_renders_structured_fields() {
 }
 
 #[test]
-fn generated_variant_constructors_work() {
-    let unit = AuthError::invalid_token();
-    let named = AuthError::permission_denied(100);
-    let inline = ApiError::rate_limited(11);
-    let unit_report = AuthError::invalid_token_report();
-    let named_report = AuthError::permission_denied_report(200);
-
-    assert_eq!(unit.to_string(), "Invalid authentication token");
-    assert_eq!(named.to_string(), "Permission denied for user 100");
-    assert_eq!(inline.to_string(), "Rate limited; retry after 11s");
-    assert!(matches!(unit_report.into_inner(), AuthError::InvalidToken));
-    assert!(matches!(
-        named_report.into_inner(),
-        AuthError::PermissionDenied { id: 200 }
-    ));
-}
-
-#[test]
-fn generated_report_constructor_supports_custom_report_path() {
-    let report = CustomPathError::works_report();
-    assert!(matches!(report.into_inner(), CustomPathError::Works));
-}
-
-#[test]
-fn generated_constructors_support_prefix_configuration() {
-    let err = PrefixError::new_invalid_token(42);
-    let report = PrefixError::new_invalid_token_report(88);
-    assert_eq!(err.to_string(), "Invalid token for 42");
-    assert!(matches!(
-        report.into_inner(),
-        PrefixError::InvalidToken { user_id: 88 }
-    ));
-}
-
-#[test]
 fn set_enum_provides_diag_helpers() {
     let report: Report<AuthError> = AuthError::InvalidToken.to_report();
     assert_eq!(report.to_string(), "Invalid authentication token");
@@ -159,12 +105,12 @@ fn from_and_transparent_display_work_for_wrapper_variants() {
     let err: WrapperError = std::io::Error::other("socket closed").into();
     assert_eq!(err.to_string(), "socket closed");
 
-    let cfg = WrapperError::config("missing field");
+    let cfg = WrapperError::Config("missing field");
     assert_eq!(cfg.to_string(), "config parse failed: missing field");
 }
 
 #[test]
 fn set_visibility_respects_pub_crate() {
-    let err = ScopedError::scoped();
+    let err = ScopedError::Scoped;
     assert_eq!(err.to_string(), "scoped error");
 }

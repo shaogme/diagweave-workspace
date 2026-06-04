@@ -223,7 +223,7 @@ mod order {
     }
 
     fn invalid_order_report(order_id: u64) -> Report<OrderError, HasSeverity> {
-        Report::new(OrderError::invalid_order(order_id))
+        Report::new(OrderError::InvalidOrder { order_id })
             .with_error_code("ORDER.INVALID")
             .with_severity(Severity::Warn)
             .with_category("order")
@@ -258,7 +258,6 @@ mod order {
             r.with_ctx("order_id", order_id)
                 .with_ctx("order_amount_cents", amount_cents)
                 .attach_note("order pipeline entered payment stage")
-                .with_error_code("ORDER.PAYMENT_FAILED")
                 .with_severity(Severity::Error)
                 .with_category("order")
                 .with_retryable(true)
@@ -278,7 +277,7 @@ mod order {
                         },
                     ],
                 )
-                .map_err(|_err| OrderError::payment_failed(order_id))
+                .map_err(|_err| OrderError::PaymentFailed { order_id })
         })?;
         Ok(())
     }

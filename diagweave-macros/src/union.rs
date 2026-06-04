@@ -11,11 +11,9 @@ use syn::{
 };
 
 use crate::shared::codegen::enum_impl_helpers;
-use crate::shared::constructors::gen_variant_ctors_simple;
 use crate::shared::derive::merge_debug_derive;
 use crate::shared::display::display_arm;
 use crate::shared::from_attr::{from_variant_source, is_from_variant};
-use crate::shared::options::parse_diagweave_options;
 use crate::shared::sanitize::sanitize_variant_attrs;
 use crate::shared::source::source_arm_for_variant;
 
@@ -28,7 +26,6 @@ pub(crate) fn union_impl(input: TokenStream) -> TokenStream {
 }
 
 fn expand_union(input: UnionInput) -> Result<proc_macro2::TokenStream> {
-    let options = parse_diagweave_options(&input.attrs)?;
     let attrs = strip_union_attrs(input.attrs);
     let mut generated_variants = Vec::new();
     let mut from_impls = Vec::new();
@@ -53,13 +50,6 @@ fn expand_union(input: UnionInput) -> Result<proc_macro2::TokenStream> {
     for term in input.terms {
         ctx.expand_term(term)?;
     }
-    let constructors = gen_variant_ctors_simple(
-        enum_name,
-        &constructor_variants,
-        &options.report_path,
-        &options.constructor_prefix,
-    )?;
-
     let merged_attrs = merge_debug_derive(attrs)?;
     let enum_impl_helpers = enum_impl_helpers(enum_name, &source_arms);
     Ok(quote! {
@@ -68,9 +58,6 @@ fn expand_union(input: UnionInput) -> Result<proc_macro2::TokenStream> {
             #(#generated_variants),*
         }
 
-        impl #enum_name {
-            #(#constructors)*
-        }
         #enum_impl_helpers
 
         impl ::core::fmt::Display for #enum_name {

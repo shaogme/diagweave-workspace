@@ -93,7 +93,7 @@ set! {
 }
 
 fn verify(user_id: u64) -> Result<(), AuthError> {
-    Err(AuthError::invalid_token(user_id))
+    Err(AuthError::InvalidToken { user_id })
 }
 
 fn main() {
@@ -141,47 +141,6 @@ set! {
 
         #[display("request timed out")]
         Timeout,
-    }
-}
-```
-
-自动构造器：
-
-- `AuthError::invalid_token(user_id)`
-- `AuthError::permission_denied(role)`
-- `AuthError::timeout()`
-- 以及 report 构造器：`*_report(...)`
-
-自定义前缀：
-
-```rust
-use diagweave::prelude::set;
-
-set! {
-    #[diagweave(constructor_prefix = "new")]
-    AuthError = {
-        #[display("user {user_id} token is invalid")]
-        InvalidToken { user_id: u64 },
-    }
-}
-
-let e = AuthError::new_invalid_token(7);
-let r = AuthError::new_invalid_token_report(7);
-```
-
-自定义 report 路径：
-
-```rust,ignore
-use diagweave::prelude::set;
-# mod custom_runtime {
-#     pub struct Bag<T>(pub T);
-# }
-
-set! {
-    #[diagweave(report_path = "crate::custom_runtime::Bag")]
-    AuthError = {
-        #[display("invalid token")]
-        InvalidToken,
     }
 }
 ```
@@ -237,9 +196,7 @@ union! {
 - 为列出的外部类型自动实现 `From<T>`
 - 外部类型自动委托 `Display`
 - 支持 `as Alias` 覆盖默认变体名
-- 自动实现 `Error`，缺少 `Debug` 时自动补充
-- 自动生成构造器与 `*_report`（同 `set!`）
-- 支持 `#[diagweave(constructor_prefix = \"...\", report_path = \"...\")]`
+- 自动实现 `Error`，缺少 `Debug`时自动补充
 - 自动生成 `to_report()` 与 `source()` 方法
 
 ## 独立 `#[derive(Error)]`

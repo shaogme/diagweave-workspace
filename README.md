@@ -93,7 +93,7 @@ set! {
 }
 
 fn verify(user_id: u64) -> Result<(), AuthError> {
-    Err(AuthError::invalid_token(user_id))
+    Err(AuthError::InvalidToken { user_id })
 }
 
 fn main() {
@@ -141,47 +141,6 @@ set! {
 
         #[display("request timed out")]
         Timeout,
-    }
-}
-```
-
-Generated constructors:
-
-- `AuthError::invalid_token(user_id)`
-- `AuthError::permission_denied(role)`
-- `AuthError::timeout()`
-- report helpers: `*_report(...)`
-
-Custom constructor prefix:
-
-```rust
-use diagweave::prelude::set;
-
-set! {
-    #[diagweave(constructor_prefix = "new")]
-    AuthError = {
-        #[display("user {user_id} token is invalid")]
-        InvalidToken { user_id: u64 },
-    }
-}
-
-let e = AuthError::new_invalid_token(7);
-let r = AuthError::new_invalid_token_report(7);
-```
-
-Custom report path:
-
-```rust,ignore
-use diagweave::prelude::set;
-# mod custom_runtime {
-#     pub struct Bag<T>(pub T);
-# }
-
-set! {
-    #[diagweave(report_path = "crate::custom_runtime::Bag")]
-    AuthError = {
-        #[display("invalid token")]
-        InvalidToken,
     }
 }
 ```
@@ -238,8 +197,6 @@ Highlights:
 - display delegation for wrapped external errors
 - `as Alias` for variant naming override
 - auto `Error` implementation and auto `Debug` backfill
-- generated constructors and `*_report` helpers (same as `set!`)
-- supports `#[diagweave(constructor_prefix = "...", report_path = "...")]`
 - auto helpers: `to_report()`, `source()`, and `diag()` on the enum
 
 ## Standalone `#[derive(Error)]`

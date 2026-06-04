@@ -3,22 +3,16 @@
 ## 1. `set!` 宏
 
 ### 概览
-用于定义一系列结构化的错误枚举（Error Set），自动实现集合间的组合逻辑、`From` 转换、蛇形命名构造器、报告语义，以及枚举辅助方法（`to_report()`/`source()`/`diag()`）。
+用于定义一系列结构化的错误枚举（Error Set），自动实现集合间的组合逻辑、`From` 转换、报告语义，以及枚举辅助方法（`to_report()`/`source()`/`diag()`）。
 
 ### 语法定义
 ```rust, ignore
 set! {
-    [#[diagweave(Meta)]]
     Ident = { [VariantDecls] } [ | OtherSet ]
     ...
 }
 ```
 
-### 声明参数 (Meta)
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `report_path` | `String` | `"::diagweave::report::Report"` | 指定 `*_report` 构造器返回的报告类型路径 |
-| `constructor_prefix` | `String` | `""` | 给生成的构造器函数名添加前缀（如 `new_`） |
 
 ### 支持属性 (Attributes)
 | 属性 | 位置 | 参数 | 说明 |
@@ -50,8 +44,6 @@ set! {
 ### 生成方法 (以 `AuthError` 为例)
 | 声明 | 返回类型 | 说明 |
 | :--- | :--- | :--- |
-| `AuthError::user_not_found(id: u64)` | `AuthError` | 蛇形命名构造器 |
-| `AuthError::user_not_found_report(id: u64)` | `Report<AuthError>` | 返回包含当前错误的报告对象 |
 | `AuthError::to_report::<NewE>(self)` | `Report<NewE>` | 将错误实例转换为报告，支持可选的目标类型转换 (要求 `Self: Into<NewE>`，默认为 `Self`) |
 | `AuthError::source(&self)` | `Option<&dyn Error>` | 读取底层 source 错误 |
 | `From<AuthError> for ServiceError` | `ServiceError` | 自动实现子集到超集的映射 |
@@ -109,8 +101,6 @@ union! {
 - **自动实现 `Display`**：对于外部类型，生成 `match` 分支调用 `inner.fmt(f)`；对于内联变体，基于 `#[display]` 模板生成渲染逻辑。
 - **自动实现 `Error`**：如果未提供 `Debug`，会自动附加 `#[derive(Debug)]`。
 - **From 注入**：为每一个外部成员类型注入 `impl From<T> for Union`。
-- **构造器**：为内联与外部变体生成蛇形命名构造器与 `*_report`。
-- **选项**：支持在 union enum 上使用 `#[diagweave(constructor_prefix = \"...\", report_path = \"...\")]`。
 - **辅助方法**：自动生成 `to_report::<NewE>()`、`source()` 与 `diag()`。
 
 ---

@@ -16,8 +16,6 @@ use diagweave::trace::{EmitStats, PreparedTracingEmission, TracingExporterTrait}
 // =============================================================================
 
 set! {
-    #[diagweave(report_path = "::diagweave::report::Report")]
-
     /// Core errors used across the system
     #[derive(Debug, Clone, PartialEq, Eq)]
     BaseError = {
@@ -55,7 +53,6 @@ set! {
 }
 
 set! {
-    #[diagweave(constructor_prefix = "new")]
     CtorDemoError = {
         #[display("user {user_id} is locked")]
         UserLocked { user_id: u64 },
@@ -217,11 +214,11 @@ fn api_handler(request_id: &'static str) -> Result<String, Report<ApiError, HasS
 /// Returns an error report if any ID is invalid.
 fn parse_trace_ids() -> Result<(TraceId, SpanId, ParentSpanId), Report<ApiError, HasSeverity>> {
     let trace_id = TraceId::from_str("4bf92f3577b34da6a3ce929d0e0e4736")
-        .map_err(|_| Report::new(ApiError::retry_later(1)).with_severity(Severity::Error))?;
+        .map_err(|_| Report::new(ApiError::RetryLater(1)).with_severity(Severity::Error))?;
     let span_id = SpanId::from_str("00f067aa0ba902b7")
-        .map_err(|_| Report::new(ApiError::retry_later(1)).with_severity(Severity::Error))?;
+        .map_err(|_| Report::new(ApiError::RetryLater(1)).with_severity(Severity::Error))?;
     let parent_span_id = ParentSpanId::from_str("1111111111111111")
-        .map_err(|_| Report::new(ApiError::retry_later(1)).with_severity(Severity::Error))?;
+        .map_err(|_| Report::new(ApiError::RetryLater(1)).with_severity(Severity::Error))?;
     Ok((trace_id, span_id, parent_span_id))
 }
 
@@ -387,7 +384,7 @@ where
 fn demo_specialized_stores() {
     println!("--- Unified Display Causes ---");
 
-    let report = Result::<(), _>::Err(BaseError::not_found("item_1".into()))
+    let report = Result::<(), _>::Err(BaseError::NotFound { id: "item_1".into() })
         .diag_res(|r| {
             r.with_display_cause("cache invalidated")
                 .with_display_cause(io::Error::other("hardware failure"))
@@ -455,10 +452,8 @@ fn init_global_context() {
 fn demo_new_capabilities() {
     println!("--- New Capabilities Showcase ---");
 
-    let ctor = CtorDemoError::new_user_locked(7);
-    let ctor_report = CtorDemoError::new_user_locked_report(7);
-    println!("constructor_prefix: {}", ctor);
-    println!("constructor_prefix report: {}", ctor_report);
+    let ctor = CtorDemoError::UserLocked { user_id: 7 };
+    println!("CtorDemoError: {}", ctor);
 
     let variant_report: Report<AuthError> = AuthError::SessionExpired { user_id: 1001 }.to_report();
     println!("Variant.to_report(): {}", variant_report);
@@ -482,9 +477,9 @@ fn main() {
     println!("=== Diagweave Best-Practice Showcase ===\n");
     println!("Schema version: {}\n", REPORT_JSON_SCHEMA_VERSION);
 
-    let base = BaseError::not_found("user_123".into());
+    let base = BaseError::NotFound { id: "user_123".into() };
     println!("Base constructor: {}", base);
-    let report_ctor = AuthError::session_expired_report(1001);
+    let report_ctor = Report::new(AuthError::SessionExpired { user_id: 1001 });
     println!("Report helper constructor: {}\n", report_ctor);
 
     demo_new_capabilities();

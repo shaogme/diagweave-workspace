@@ -5,7 +5,6 @@ mod resolver;
 
 use std::collections::BTreeMap;
 
-use crate::shared::options::parse_diagweave_options;
 use bitset::SymbolTable;
 use r#gen::{generate_all_from_impls, generate_enum_impl};
 use parser::SetInput;
@@ -23,7 +22,6 @@ pub(crate) fn set_impl(input: TokenStream) -> TokenStream {
 }
 
 fn expand(input: SetInput) -> Result<proc_macro2::TokenStream> {
-    let options = parse_diagweave_options(&input.attrs)?;
     let decls = collect_decls(input.decls)?;
 
     let mut symbol_table = SymbolTable::default();
@@ -39,7 +37,7 @@ fn expand(input: SetInput) -> Result<proc_macro2::TokenStream> {
         let set = resolved.get(name).ok_or_else(|| {
             syn::Error::new(proc_macro2::Span::call_site(), "resolved set must exist")
         })?;
-        enums.push(generate_enum_impl(set, &options)?);
+        enums.push(generate_enum_impl(set)?);
     }
 
     let from_impls = generate_all_from_impls(&names, &resolved)?;
