@@ -480,9 +480,11 @@ fn report_types_debug_output_is_optimized() {
 
     // Verify StackFrame debug representation
     use diagweave::report::StackFrame;
-    let mut frame = StackFrame::default();
-    frame.symbol = Some("test_fn".into());
-    frame.line = Some(42);
+    let frame = StackFrame {
+        symbol: Some("test_fn".into()),
+        line: Some(42),
+        ..Default::default()
+    };
     let debug_frame = format!("{:?}", frame);
     assert!(debug_frame.contains("StackFrame"));
     assert!(debug_frame.contains("test_fn"));
