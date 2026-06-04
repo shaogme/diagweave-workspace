@@ -8,37 +8,6 @@ use super::{
     ReportSourceErrorIter, Severity, SeverityState, StackTrace,
 };
 
-macro_rules! define_diag_err_method {
-    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty),*) -> Self) => {
-        $(#[$attr])*
-        fn $name(self, $($arg: $ty),*) -> Report<Self, MissingSeverity>
-        where
-            Self: Sized,
-        {
-            self.to_report().$name($($arg),*)
-        }
-    };
-    ($(#[$attr:meta])* fn $name:ident <$($gen:ident),*> ($($arg:ident : $ty:ty $(,)? )* ) -> Self where $($bound:tt)*) => {
-        $(#[$attr])*
-        fn $name <$($gen),*> (self, $($arg: $ty),*) -> Report<Self, MissingSeverity>
-        where
-            Self: Sized,
-            $($bound)*
-        {
-            self.to_report().$name($($arg),*)
-        }
-    };
-    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty $(,)? )* ) -> $state:ty [STATE_CHANGE]) => {
-        $(#[$attr])*
-        fn $name(self, $($arg: $ty),*) -> Report<Self, $state>
-        where
-            Self: Sized,
-        {
-            self.to_report().$name($($arg),*)
-        }
-    };
-}
-
 pub trait DiagnosticError: Error + Send + Sync + 'static {
     /// Converts the error into a `Report`.
     fn to_report(self) -> Report<Self>
@@ -56,8 +25,6 @@ pub trait DiagnosticError: Error + Send + Sync + 'static {
     {
         Report::new(self.into())
     }
-
-    for_each_report_builder_method!(define_diag_err_method);
 }
 
 impl DiagnosticError for core::fmt::Error {}

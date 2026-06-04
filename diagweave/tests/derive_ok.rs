@@ -46,7 +46,7 @@ fn derive_source_errors_and_diag_work() {
 #[test]
 fn derive_direct_diag_on_client_error() {
     // Directly call diag on a ClientError instance (inherent method provided by macro)
-    let report = ClientError { code: 403 }.attach_note("note");
+    let report = ClientError { code: 403 }.to_report().attach_note("note");
     // Ensure we got a report and inner error renders as expected
     assert_eq!(report.inner().to_string(), "client error code=403");
 }
