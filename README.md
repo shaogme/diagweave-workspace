@@ -98,19 +98,12 @@ fn verify(user_id: u64) -> Result<(), AuthError> {
 
 fn main() {
     let report: Report<AuthError> = verify(7)
-        .diag(|r| {
+        .diag_res(|r| {
             r.with_ctx("request_id", "req-001")
                 .with_ctx("retry", 0)
                 .attach_note("auth gate rejected")
         })
         .expect_err("demo");
-
-    // Or equivalently call `diag` directly on Result to transform and decorate
-    let diag_report = verify(7).diag(|r| {
-        r.with_ctx("request_id", "req-001")
-            .with_ctx("retry", 0)
-            .attach_note("auth gate rejected")
-    });
 
     println!("{}", report);          // compact output
     println!("{}", report.pretty()); // structured output

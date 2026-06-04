@@ -168,8 +168,8 @@ enum FileError {
 #### 1. `Diagnostic` (作用于 `Result<T, E>`)
 - `to_report_res<TargetE>()`: 提升 `Err(E)` 为 `Err(Report<TargetE>)`，支持自动转换内部错误类型（要求 `E: Into<TargetE>`）。
 - `to_report_note(msg)`: 提升并注入备注。
-- `diag(...)`：Result<T, E> 上的快捷入口，泛型版本允许转换错误类型和状态类型；签名：
-  `diag<E2, State2>(self, f: impl FnOnce(Report<E>) -> Report<E2, State2>) -> Result<T, Report<E2, State2>>`。
+- `diag_res(...)`：Result<T, E> 上的快捷入口，泛型版本允许转换错误类型和状态类型；签名：
+  `diag_res<E2, State2>(self, f: impl FnOnce(Report<E>) -> Report<E2, State2>) -> Result<T, Report<E2, State2>>`。
   闭包接收 `Report<E>` 并返回 `Report<E2, State2>`。当仅添加元数据时无需显式类型标注；
   当转换错误类型（如通过 `map_err`）时需要标注返回类型。若需要控制原生 source 链是否继续累积，可先通过 `set_accumulate_src_chain()` 配置报告选项。
 
@@ -224,7 +224,7 @@ fn process() -> Result<(), Report<io::Error, HasSeverity>> {
 // 示例：在保留诊断信息的同时转换错误类型
 fn boundary_op() -> Result<String, Report<io::Error>> {
     fs::read_to_string("config.toml")
-        .diag(|r| r.attach_note("captured at boundary"))
+        .diag_res(|r| r.attach_note("captured at boundary"))
         .map_inner_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
@@ -412,7 +412,7 @@ fn db_operation() -> Result<(), DatabaseError> {
 
 fn service_layer() -> Result<(), Report<AppError>> {
     db_operation()
-        .diag(|r| {
+        .diag_res(|r| {
             r.with_ctx("db", "primary")
                 .set_accumulate_src_chain(true)
                 .map_err(AppError::Db)

@@ -56,17 +56,17 @@ pub trait Diagnostic {
     ///
     /// ```ignore
     /// // No type annotation needed when only adding metadata
-    /// fail_auth().diag(|r| {
+    /// fail_auth().diag_res(|r| {
     ///     r.with_ctx("request_id", 77u64)
     ///         .with_error_code("AUTH.INVALID_TOKEN")
     /// })
     ///
     /// // Type annotation needed when transforming error type
-    /// let err: Result<(), Report<ApiError>> = fail_auth().diag(|r| {
+    /// let err: Result<(), Report<ApiError>> = fail_auth().diag_res(|r| {
     ///     r.map_err(|_| ApiError::Unauthorized)
     /// });
     /// ```
-    fn diag<T, E2, State2>(
+    fn diag_res<T, E2, State2>(
         self,
         f: impl FnOnce(Report<Self::Error>) -> Report<E2, State2>,
     ) -> Result<T, Report<E2, State2>>
@@ -132,7 +132,7 @@ where
 ///
 /// ```ignore
 /// db_operation()
-///     .diag(|r| {
+///     .diag_res(|r| {
 ///         r.with_ctx("user_id", user_id)
 ///             .attach_note("failing over")
 ///             .capture_stack_trace()

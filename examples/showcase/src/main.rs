@@ -153,7 +153,7 @@ fn db_operation() -> Result<(), DatabaseError> {
 }
 
 fn service_layer(user_id: u64) -> Result<(), Report<AppError>> {
-    db_operation().diag(|r| {
+    db_operation().diag_res(|r| {
         r.with_ctx("user_id", user_id)
             .attach_note("failing over to secondary database")
             .with_display_cause("db operation failed")
@@ -388,7 +388,7 @@ fn demo_specialized_stores() {
     println!("--- Unified Display Causes ---");
 
     let report = Result::<(), _>::Err(BaseError::not_found("item_1".into()))
-        .diag(|r| {
+        .diag_res(|r| {
             r.with_display_cause("cache invalidated")
                 .with_display_cause(io::Error::other("hardware failure"))
                 .attach_note("local processing delayed")
@@ -460,7 +460,7 @@ fn demo_new_capabilities() {
     println!("constructor_prefix: {}", ctor);
     println!("constructor_prefix report: {}", ctor_report);
 
-    let variant_report = AuthError::SessionExpired { user_id: 1001 }.to_report();
+    let variant_report: Report<AuthError> = AuthError::SessionExpired { user_id: 1001 }.to_report();
     println!("Variant.to_report(): {}", variant_report);
 
     let auto_ctx = Report::new(BaseError::Timeout(1500));

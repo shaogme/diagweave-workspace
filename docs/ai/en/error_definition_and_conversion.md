@@ -168,8 +168,8 @@ Provides pipelines for seamless diagnostic info injection on error paths by impl
 #### 1. `Diagnostic` (on `Result<T, E>`)
 - `to_report_res<TargetE>()`: Lifts `Err(E)` to `Err(Report<TargetE>)`, supporting automatic conversion of the inner error (requires `E: Into<TargetE>`).
 - `to_report_note(msg)`: Lifts and injects note.
-- `diag(...)`: Short-hand for chaining a transformation on the error path. Generic signature:
-  `diag<E2, State2>(self, f: impl FnOnce(Report<E>) -> Report<E2, State2>) -> Result<T, Report<E2, State2>>`.
+- `diag_res(...)`: Short-hand for chaining a transformation on the error path. Generic signature:
+  `diag_res<E2, State2>(self, f: impl FnOnce(Report<E>) -> Report<E2, State2>) -> Result<T, Report<E2, State2>>`.
   The closure receives a `Report<E>` and returns a `Report<E2, State2>`. When only adding metadata,
   no explicit type annotations are needed; when transforming the error type (e.g., via `map_err`),
   the return type must be annotated. If you need to control whether the origin source chain continues
@@ -227,7 +227,7 @@ fn process() -> Result<(), Report<io::Error, HasSeverity>> {
 // Example: Mapping error types while preserving diagnostics
 fn boundary_op() -> Result<String, Report<io::Error>> {
     fs::read_to_string("config.toml")
-        .diag(|r| r.attach_note("captured at boundary"))
+        .diag_res(|r| r.attach_note("captured at boundary"))
         .map_inner_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
@@ -415,7 +415,7 @@ fn db_operation() -> Result<(), DatabaseError> {
 
 fn service_layer() -> Result<(), Report<AppError>> {
     db_operation()
-        .diag(|r| {
+        .diag_res(|r| {
             r.with_ctx("db", "primary")
                 .set_accumulate_src_chain(true)
                 .map_err(AppError::Db)
