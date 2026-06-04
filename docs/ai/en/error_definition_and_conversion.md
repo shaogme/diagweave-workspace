@@ -161,7 +161,7 @@ enum FileError {
 
 ---
 
-## 4. `Result` Extension Traits (`Diagnostic` / `ResultReportExt` / `InspectReportExt`)
+## 4. `Result` Extension Traits (`Diagnostic` / `ResultReportExt`)
 
 ### Overview
 Provides pipelines for seamless diagnostic info injection on error paths by implementing extension traits for `Result<T, E>` and `Result<T, Report<E>>`.
@@ -178,21 +178,19 @@ Provides pipelines for seamless diagnostic info injection on error paths by impl
   to accumulate, configure the report options first via `set_accumulate_src_chain()`.
 
 #### 2. `ResultReportExt` (on `Result<T, Report<E>>`)
-Instead of duplicating every `Report` method, this trait provides a single combinator:
+Instead of duplicating every `Report` method, this trait provides a single combinator and read-only helpers:
 - `map_report(|r| ...)` — apply any chain of `Report` builder methods on the error path
 - `with_ctx()`, `attach_note()`, `set_severity()`, etc. — all `Report` builder methods are available directly on `Result<T, Report<E>>` and only execute on the `Err` path
 - `map_inner_err(|e| Outer::from(e))` — transform the inner error type while preserving all diagnostics
 - `trans_inner_err()` — convenient shortcut to convert the inner error type (when `E: Into<NewE>`)
 - `into_inner_err()` — discard diagnostics and return `Result<T, E>`
+- **Read-Only Helpers**: For error-path inspection without manually matching `Err`:
+  - `report_ref()`, `report_inner()`, `report_metadata()`, `report_attachments()`
+  - `report_error_code()`, `report_severity()`, `report_category()`, `report_retryable()`
+  - `report_context()`, `report_system()`, `report_stack_trace()`, `report_options()`, `report_display_causes()`
+  - `report_iter_origin_sources()`, `report_iter_diag_sources()`
 
 The closure receives an owned `Report` and must return an owned `Report`. On the `Ok` path the closure is never invoked, providing natural lazy semantics.
-
-#### 3. `InspectReportExt` (on `Result<T, Report<E>>`)
-Read-only helpers for error-path inspection without manually matching `Err`:
-- `report_ref()`, `report_inner()`, `report_metadata()`, `report_attachments()`
-- `report_error_code()`, `report_severity()`, `report_category()`, `report_retryable()`
-- `report_context()`, `report_system()`, `report_stack_trace()`, `report_options()`, `report_display_causes()`
-- `report_iter_origin_sources()`, `report_iter_diag_sources()`
 
 
 ### Usage Example

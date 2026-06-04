@@ -161,7 +161,7 @@ enum FileError {
 
 ---
 
-## 4. `Result` 扩展 trait  (`Diagnostic` / `ResultReportExt` / `InspectReportExt`)
+## 4. `Result` 扩展 trait  (`Diagnostic` / `ResultReportExt`)
 
 ### 概览
 通过为 `Result<T, E>` 和 `Result<T, Report<E>>` 实现扩展 trait，提供在错误路径上无缝注入诊断信息的管道。
@@ -176,20 +176,18 @@ enum FileError {
   当转换错误类型（如通过 `map_err`）时需要标注返回类型。若需要控制原生 source 链是否继续累积，可先通过 `set_accumulate_src_chain()` 配置报告选项。
 
 #### 2. `ResultReportExt` (作用于 `Result<T, Report<E>>`)
-不再重复每个 `Report` 方法，而是提供单一组合子：
+不再重复每个 `Report` 方法，而是提供单一组合子和只读查询：
 - `map_report(|r| r.with_ctx(...).with_severity(...))` — 仅在错误路径上应用任意 `Report` 方法链
 - `map_inner_err(|e| Outer::from(e))` — 转换内部错误类型，并保留所有诊断信息
 - `trans_inner_err()` — 转换内部错误类型的便捷快捷方式（当 `E: Into<NewE>` 时）
 - `into_inner_err()` — 丢弃诊断信息，返回 `Result<T, E>`
+- **只读查询**：用于在错误路径做只读查询，避免手动 `match Err(report)`：
+  - `report_ref()`、`report_inner()`、`report_metadata()`、`report_attachments()`
+  - `report_error_code()`、`report_severity()`、`report_category()`、`report_retryable()`
+  - `report_context()`、`report_system()`、`report_stack_trace()`、`report_options()`、`report_display_causes()`
+  - `report_iter_origin_sources()`、`report_iter_diag_sources()`
 
 闭包接收 owned `Report` 并返回 owned `Report`。在 `Ok` 路径上闭包永远不会被调用，提供天然的延迟语义。
-
-#### 3. `InspectReportExt` (作用于 `Result<T, Report<E>>`)
-用于在错误路径做只读查询，避免手动 `match Err(report)`：
-- `report_ref()`、`report_inner()`、`report_metadata()`、`report_attachments()`
-- `report_error_code()`、`report_severity()`、`report_category()`、`report_retryable()`
-- `report_context()`、`report_system()`、`report_stack_trace()`、`report_options()`、`report_display_causes()`
-- `report_iter_origin_sources()`、`report_iter_diag_sources()`
 
 
 ### 用法示例
