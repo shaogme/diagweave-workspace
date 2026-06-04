@@ -85,7 +85,7 @@ fn test_set_to_report_trans() {
     use diagweave::report::Report;
 
     let err_a = SetA::Variant1;
-    let report: Report<SetB> = err_a.to_report_trans();
+    let report: Report<SetB> = err_a.to_report();
 
     match report.inner() {
         SetB::Variant1 => {}

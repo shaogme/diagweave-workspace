@@ -288,7 +288,7 @@ Common enrichers on `Result<T, Report<E>>`:
 - If the target error type `NewE` implements `From<E>`, you can simply use `.into()` or the `?` operator to directly promote and convert a raw error or `Result` into a `Report<NewE>`:
 - **Chained Explicit Conversion (`to_report_res`)**:
   - On `Result<T, E>`, you can use `.to_report_res::<T, TargetE>()` to lift and directly convert the inner error type to `TargetE` (requires `E: Into<TargetE>`).
-  - On macro-generated error types (`#[derive(Error)]`, `set!`, `union!`), you can use `.to_report_trans::<NewE>()` as a convenient shortcut to construct the target report object in a single step (requires `Self: Into<NewE>`).
+  - On macro-generated error types (`#[derive(Error)]`, `set!`, `union!`), you can use `.to_report::<NewE>()` as a convenient shortcut to construct the target report object in a single step (requires `Self: Into<NewE>`).
   ```rust
   # use diagweave::prelude::{set, Report};
   # set! {

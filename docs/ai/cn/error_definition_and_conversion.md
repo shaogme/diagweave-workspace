@@ -52,8 +52,7 @@ set! {
 | :--- | :--- | :--- |
 | `AuthError::user_not_found(id: u64)` | `AuthError` | 蛇形命名构造器 |
 | `AuthError::user_not_found_report(id: u64)` | `Report<AuthError>` | 返回包含当前错误的报告对象 |
-| `AuthError::to_report(self)` | `Report<AuthError>` | 将错误实例转换为报告 |
-| `AuthError::to_report_trans::<NewE>(self)` | `Report<NewE>` | 便捷将错误转换为目标类型的诊断报告 (要求 `Self: Into<NewE>`) |
+| `AuthError::to_report::<NewE>(self)` | `Report<NewE>` | 将错误实例转换为报告，支持可选的目标类型转换 (要求 `Self: Into<NewE>`，默认为 `Self`) |
 | `AuthError::source(&self)` | `Option<&dyn Error>` | 读取底层 source 错误 |
 | `From<AuthError> for ServiceError` | `ServiceError` | 自动实现子集到超集的映射 |
 
@@ -112,7 +111,7 @@ union! {
 - **From 注入**：为每一个外部成员类型注入 `impl From<T> for Union`。
 - **构造器**：为内联与外部变体生成蛇形命名构造器与 `*_report`。
 - **选项**：支持在 union enum 上使用 `#[diagweave(constructor_prefix = \"...\", report_path = \"...\")]`。
-- **辅助方法**：自动生成 `to_report()`、`to_report_trans::<NewE>()`、`source()` 与 `diag()`。
+- **辅助方法**：自动生成 `to_report::<NewE>()`、`source()` 与 `diag()`。
 
 ---
 
@@ -132,8 +131,7 @@ union! {
 任何派生了 `Error` 的类型会自动获得以下辅助方法与 trait 实现：
 | 声明 | 返回类型/trait  | 说明 |
 | :--- | :--- | :--- |
-| `pub fn to_report(self)` | `Report<Self>` | 转换为基础报告对象 |
-| `pub fn to_report_trans::<NewE>(self)` | `Report<NewE>` | 转换为目标类型报告 (要求 `Self: Into<NewE>`) |
+| `pub fn to_report::<NewE>(self)` | `Report<NewE>` | 转换为报告，支持可选的目标类型转换 (要求 `Self: Into<NewE>`，默认为 `Self`) |
 | `pub fn source(&self)` | `Option<&dyn Error>` | 便捷访问底层 Error 源 |
 | `impl DiagnosticError` | `DiagnosticError` | 标记该客户端错误可以通过 `From` trait 自动转换为任何兼容的 `Report<NewE>` |
 

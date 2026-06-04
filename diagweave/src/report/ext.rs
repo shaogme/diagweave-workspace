@@ -192,7 +192,10 @@ where
     ) -> Result<T, Report<NewE, NewState>>
     where
         Self: Sized + IntoResult<T, Report<E, State>>,
-        NewState: SeverityState;
+        NewState: SeverityState,
+    {
+        self.into_result().map_err(f)
+    }
 
     /// Maps the inner error type of the report while preserving all diagnostic data.
     ///
@@ -202,7 +205,10 @@ where
     where
         Self: Sized + IntoResult<T, Report<E, State>>,
         E: Error + Send + Sync + 'static,
-        NewE: Error + Send + Sync + 'static;
+        NewE: Error + Send + Sync + 'static,
+    {
+        self.into_result().map_err(|r| r.map_err(f))
+    }
 
     /// A convenient shortcut to convert the inner error to a different type via `Into`.
     fn trans_inner_err<T, NewE>(self) -> Result<T, Report<NewE, State>>
@@ -210,173 +216,169 @@ where
         Self: Sized + IntoResult<T, Report<E, State>>,
         E: Error + Send + Sync + 'static,
         E: Into<NewE>,
-        NewE: Error + Send + Sync + 'static;
+        NewE: Error + Send + Sync + 'static,
+    {
+        self.into_result().map_err(|r| r.map_err(|e| e.into()))
+    }
 
     /// Consumes the result and returns the inner error if it's an error,
     /// discarding all diagnostic information.
     fn into_inner_err<T>(self) -> Result<T, E>
     where
-        Self: Sized + IntoResult<T, Report<E, State>>;
+        Self: Sized + IntoResult<T, Report<E, State>>,
+    {
+        self.into_result().map_err(|r| r.into_inner())
+    }
 
     for_each_report_builder_method!(define_ext_method);
 
     /// Returns a reference to the inner `Report` on the error path, or `None`.
-    fn report_ref(&self) -> Option<&Report<E, State>>;
+    fn report_ref<'a>(&'a self) -> Option<&'a Report<E, State>>
+    where
+        State: 'a,
+        E: 'a;
 
     /// Returns a reference to the inner error on the error path, or `None`.
-    fn report_inner(&self) -> Option<&E>;
+    fn report_inner<'a>(&'a self) -> Option<&'a E>
+    where
+        State: 'a,
+        E: 'a,
+    {
+        self.report_ref().map(Report::<E, State>::inner)
+    }
 
     /// Returns the report's attachments on the error path, or `None`.
-    fn report_attachments(&self) -> Option<&[Attachment]>;
+    fn report_attachments<'a>(&'a self) -> Option<&'a [Attachment]>
+    where
+        State: 'a,
+        E: 'a,
+    {
+        self.report_ref().map(Report::<E, State>::attachments)
+    }
 
     /// Returns the report's context on the error path, or `None`.
-    fn report_context(&self) -> Option<&ContextMap>;
+    fn report_context<'a>(&'a self) -> Option<&'a ContextMap>
+    where
+        State: 'a,
+        E: 'a,
+    {
+        self.report_ref().map(Report::<E, State>::context)
+    }
 
     /// Returns the report's system context on the error path, or `None`.
-    fn report_system(&self) -> Option<&ContextMap>;
+    fn report_system<'a>(&'a self) -> Option<&'a ContextMap>
+    where
+        State: 'a,
+        E: 'a,
+    {
+        self.report_ref().map(Report::<E, State>::system)
+    }
 
     /// Returns the report's metadata on the error path, or `None`.
-    fn report_metadata(&self) -> Option<&ReportMetadata<State>>;
+    fn report_metadata<'a>(&'a self) -> Option<&'a ReportMetadata<State>>
+    where
+        State: 'a,
+        E: 'a,
+    {
+        self.report_ref().map(Report::<E, State>::metadata)
+    }
 
     /// Returns the report's error code on the error path, or `None`.
-    fn report_error_code(&self) -> Option<&ErrorCode>;
+    fn report_error_code<'a>(&'a self) -> Option<&'a ErrorCode>
+    where
+        State: 'a,
+        E: 'a,
+    {
+        self.report_ref().and_then(Report::<E, State>::error_code)
+    }
 
     /// Returns the report's severity on the error path, or `None`.
-    fn report_severity(&self) -> Option<Severity>;
+    fn report_severity<'a>(&'a self) -> Option<Severity>
+    where
+        State: 'a,
+        E: 'a,
+    {
+        self.report_ref().and_then(Report::<E, State>::severity)
+    }
 
     /// Returns the report's category on the error path, or `None`.
-    fn report_category(&self) -> Option<&str>;
+    fn report_category<'a>(&'a self) -> Option<&'a str>
+    where
+        State: 'a,
+        E: 'a,
+    {
+        self.report_ref().and_then(Report::<E, State>::category)
+    }
 
     /// Returns whether the report is retryable on the error path, or `None`.
-    fn report_retryable(&self) -> Option<bool>;
+    fn report_retryable<'a>(&'a self) -> Option<bool>
+    where
+        State: 'a,
+        E: 'a,
+    {
+        self.report_ref().and_then(Report::<E, State>::retryable)
+    }
 
     /// Returns the report's stack trace on the error path, or `None`.
-    fn report_stack_trace(&self) -> Option<&StackTrace>;
+    fn report_stack_trace<'a>(&'a self) -> Option<&'a StackTrace>
+    where
+        State: 'a,
+        E: 'a,
+    {
+        self.report_ref().and_then(Report::<E, State>::stack_trace)
+    }
 
     /// Returns the report's options on the error path, or `None`.
-    fn report_options(&self) -> Option<&ReportOptions>;
+    fn report_options<'a>(&'a self) -> Option<&'a ReportOptions>
+    where
+        State: 'a,
+        E: 'a,
+    {
+        self.report_ref().map(Report::<E, State>::options)
+    }
 
     /// Returns the report's display causes on the error path, or `None`.
-    fn report_display_causes(&self) -> Option<&[Arc<dyn core::fmt::Display + Send + Sync>]>;
+    fn report_display_causes<'a>(
+        &'a self,
+    ) -> Option<&'a [Arc<dyn core::fmt::Display + Send + Sync>]>
+    where
+        State: 'a,
+        E: 'a,
+    {
+        self.report_ref().map(Report::<E, State>::display_causes)
+    }
 
     /// Returns an iterator over the report's origin source errors on the error path, or `None`.
-    fn report_iter_origin_sources(&self) -> Option<ReportSourceErrorIter<'_>>
+    fn report_iter_origin_sources<'a>(&'a self) -> Option<ReportSourceErrorIter<'a>>
     where
-        E: Error;
+        E: Error + 'a,
+        State: 'a,
+    {
+        self.report_ref()
+            .map(Report::<E, State>::iter_origin_sources)
+    }
 
     /// Returns an iterator over the report's diagnostic source errors on the error path, or `None`.
-    fn report_iter_diag_sources(&self) -> Option<ReportSourceErrorIter<'_>>
+    fn report_iter_diag_sources<'a>(&'a self) -> Option<ReportSourceErrorIter<'a>>
     where
-        E: Error;
+        E: Error + 'a,
+        State: 'a,
+    {
+        self.report_ref().map(Report::<E, State>::iter_diag_sources)
+    }
 }
 
 impl<T, E, State> ResultReportExt<E, State> for Result<T, Report<E, State>>
 where
     State: SeverityState,
 {
-    fn map_report<T2, NewE, NewState>(
-        self,
-        f: impl FnOnce(Report<E, State>) -> Report<NewE, NewState>,
-    ) -> Result<T2, Report<NewE, NewState>>
-    where
-        Self: Sized + IntoResult<T2, Report<E, State>>,
-        NewState: SeverityState,
-    {
-        self.into_result().map_err(f)
-    }
-
-    fn map_inner_err<T2, NewE>(self, f: impl FnOnce(E) -> NewE) -> Result<T2, Report<NewE, State>>
-    where
-        Self: Sized + IntoResult<T2, Report<E, State>>,
-        E: Error + Send + Sync + 'static,
-        NewE: Error + Send + Sync + 'static,
-    {
-        self.into_result().map_err(|r| r.map_err(f))
-    }
-
-    fn trans_inner_err<T2, NewE>(self) -> Result<T2, Report<NewE, State>>
-    where
-        Self: Sized + IntoResult<T2, Report<E, State>>,
-        E: Error + Send + Sync + 'static,
-        E: Into<NewE>,
-        NewE: Error + Send + Sync + 'static,
-    {
-        self.into_result().map_err(|r| r.map_err(|e| e.into()))
-    }
-
-    fn into_inner_err<T2>(self) -> Result<T2, E>
-    where
-        Self: Sized + IntoResult<T2, Report<E, State>>,
-    {
-        self.into_result().map_err(|r| r.into_inner())
-    }
-
     for_each_report_builder_method!(impl_ext_method);
 
-    fn report_ref(&self) -> Option<&Report<E, State>> {
+    fn report_ref<'a>(&'a self) -> Option<&'a Report<E, State>>
+    where
+        State: 'a,
+        E: 'a,
+    {
         self.as_ref().err()
-    }
-
-    fn report_inner(&self) -> Option<&E> {
-        self.report_ref().map(Report::<E, State>::inner)
-    }
-
-    fn report_attachments(&self) -> Option<&[Attachment]> {
-        self.report_ref().map(Report::<E, State>::attachments)
-    }
-
-    fn report_context(&self) -> Option<&ContextMap> {
-        self.report_ref().map(Report::<E, State>::context)
-    }
-
-    fn report_system(&self) -> Option<&ContextMap> {
-        self.report_ref().map(Report::<E, State>::system)
-    }
-
-    fn report_metadata(&self) -> Option<&ReportMetadata<State>> {
-        self.report_ref().map(Report::<E, State>::metadata)
-    }
-
-    fn report_error_code(&self) -> Option<&ErrorCode> {
-        self.report_ref().and_then(Report::<E, State>::error_code)
-    }
-
-    fn report_severity(&self) -> Option<Severity> {
-        self.report_ref().and_then(Report::<E, State>::severity)
-    }
-
-    fn report_category(&self) -> Option<&str> {
-        self.report_ref().and_then(Report::<E, State>::category)
-    }
-
-    fn report_retryable(&self) -> Option<bool> {
-        self.report_ref().and_then(Report::<E, State>::retryable)
-    }
-
-    fn report_stack_trace(&self) -> Option<&StackTrace> {
-        self.report_ref().and_then(Report::<E, State>::stack_trace)
-    }
-
-    fn report_options(&self) -> Option<&ReportOptions> {
-        self.report_ref().map(Report::<E, State>::options)
-    }
-
-    fn report_display_causes(&self) -> Option<&[Arc<dyn core::fmt::Display + Send + Sync>]> {
-        self.report_ref().map(Report::<E, State>::display_causes)
-    }
-
-    fn report_iter_origin_sources(&self) -> Option<ReportSourceErrorIter<'_>>
-    where
-        E: Error,
-    {
-        self.report_ref()
-            .map(Report::<E, State>::iter_origin_sources)
-    }
-
-    fn report_iter_diag_sources(&self) -> Option<ReportSourceErrorIter<'_>>
-    where
-        E: Error,
-    {
-        self.report_ref().map(Report::<E, State>::iter_diag_sources)
     }
 }

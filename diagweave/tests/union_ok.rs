@@ -1,4 +1,4 @@
-use diagweave::union;
+use diagweave::{Report, union};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -169,7 +169,7 @@ fn from_attribute_generates_from_impls() {
 
 #[test]
 fn union_enum_provides_diag_helpers() {
-    let report = ApiError::rate_limited(8).to_report();
+    let report: Report<ApiError> = ApiError::rate_limited(8).to_report();
     assert_eq!(report.to_string(), "Rate limited for 8s");
     assert!(ApiError::rate_limited(8).source().is_none());
 }
@@ -199,7 +199,7 @@ fn test_union_to_report_trans() {
     use diagweave::report::Report;
 
     let api = ApiError::rate_limited(5);
-    let report: Report<OuterError> = api.to_report_trans();
+    let report: Report<OuterError> = api.to_report();
 
     match report.inner() {
         OuterError::ApiError(ApiError::RateLimited { retry_after_secs }) => {

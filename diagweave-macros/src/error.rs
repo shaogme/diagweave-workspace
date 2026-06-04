@@ -36,10 +36,7 @@ fn expand_derive_error(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
 
     Ok(quote! {
         impl #impl_generics #ident #ty_generics #where_clause {
-            pub fn to_report(self) -> ::diagweave::report::Report<Self> {
-                ::diagweave::report::Report::new(self)
-            }
-            pub fn to_report_trans<NewE>(self) -> ::diagweave::report::Report<NewE>
+            pub fn to_report<NewE>(self) -> ::diagweave::report::Report<NewE>
             where
                 Self: Into<NewE>,
                 NewE: ::core::error::Error + Send + Sync + 'static,

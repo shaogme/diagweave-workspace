@@ -1,3 +1,5 @@
+use diagweave::Report;
+
 #[derive(Debug, diagweave::Error)]
 enum ApiError {
     #[display("invalid id: {0}")]
@@ -12,6 +14,6 @@ fn derive_error_supports_from_and_diag() {
     assert_eq!(err.to_string(), "socket closed");
     assert!(err.source().is_some());
 
-    let report = ApiError::InvalidId(9).to_report();
+    let report: Report<ApiError> = ApiError::InvalidId(9).to_report();
     assert_eq!(report.to_string(), "invalid id: 9");
 }

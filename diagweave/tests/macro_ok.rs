@@ -1,4 +1,4 @@
-use diagweave::set;
+use diagweave::{Report, set};
 
 mod custom_runtime {
     /// A simple wrapper for testing.
@@ -149,7 +149,7 @@ fn generated_constructors_support_prefix_configuration() {
 
 #[test]
 fn set_enum_provides_diag_helpers() {
-    let report = AuthError::InvalidToken.to_report();
+    let report: Report<AuthError> = AuthError::InvalidToken.to_report();
     assert_eq!(report.to_string(), "Invalid authentication token");
     assert!(AuthError::InvalidToken.source().is_none());
 }

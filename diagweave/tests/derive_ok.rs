@@ -1,4 +1,4 @@
-use diagweave::Error;
+use diagweave::{Error, Report};
 
 #[derive(Debug, Error)]
 enum DemoError {
@@ -39,7 +39,7 @@ fn derive_source_errors_and_diag_work() {
     let src = up.source().expect("source exists");
     assert_eq!(src.to_string(), "db down");
 
-    let report = ClientError { code: 403 }.to_report();
+    let report: Report<ClientError> = ClientError { code: 403 }.to_report();
     assert_eq!(report.into_inner().to_string(), "client error code=403");
 }
 
@@ -102,7 +102,7 @@ fn test_res_to_report_trans() {
 fn test_err_to_report_trans() {
     use diagweave::prelude::*;
     let err = DemoError::NotFound { id: 101 };
-    let report: Report<AppError> = err.to_report_trans();
+    let report: Report<AppError> = err.to_report();
 
     match report.inner() {
         AppError::Net(DemoError::NotFound { id }) => assert_eq!(*id, 101),
