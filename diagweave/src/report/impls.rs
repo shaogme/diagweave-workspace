@@ -11,9 +11,7 @@ use super::{Report, SeverityState};
 /// Writes ", " before the field if idx > 0, then increments idx.
 macro_rules! write_field {
     ($f:expr, $idx:expr, $name:expr, $val:expr) => {{
-        if $idx == 0 {
-            write!($f, " [")?;
-        } else {
+        if $idx > 0 {
             write!($f, ", ")?;
         }
         write!($f, "{}={}", $name, $val)?;
@@ -25,9 +23,7 @@ macro_rules! write_field {
 /// Writes ", " before the content if idx > 0, then increments idx.
 macro_rules! write_raw {
     ($f:expr, $idx:expr, $($arg:tt)*) => {{
-        if $idx == 0 {
-            write!($f, " [")?;
-        } else {
+        if $idx > 0 {
             write!($f, ", ")?;
         }
         write!($f, $($arg)*)?;
@@ -108,10 +104,7 @@ where
         let mut idx = 0usize;
         Report::<E, State>::fmt_metadata_fields(self, f, &mut idx)?;
         Report::<E, State>::fmt_diag_fields(self, f, &mut idx)?;
-        if idx > 0 {
-            write!(f, "]")?;
-        }
-        Ok(())
+        write!(f, "]")
     }
 }
 
