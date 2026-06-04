@@ -229,18 +229,7 @@ where
     {
         self.into_result().map_err(|r| r.map_err(f))
     }
-
-    /// A convenient shortcut to convert the inner error to a different type via `Into`.
-    fn trans_inner_err<T, NewE>(self) -> Result<T, Report<NewE, State>>
-    where
-        Self: Sized + IntoResult<T, Report<E, State>>,
-        E: Error + Send + Sync + 'static,
-        E: Into<NewE>,
-        NewE: Error + Send + Sync + 'static,
-    {
-        self.into_result().map_err(|r| r.map_err(|e| e.into()))
-    }
-
+    
     /// Consumes the result and returns the inner error if it's an error,
     /// discarding all diagnostic information.
     fn into_inner_err<T>(self) -> Result<T, E>
@@ -442,3 +431,28 @@ where
         Err(self.map_err(|e| e.into()))
     }
 }
+
+impl<E1, E2, State> Transform<Report<E2, State>> for Report<E1, State>
+where
+    E1: DiagnosticError + Into<E2>,
+    E2: Error + Send + Sync + 'static,
+    State: SeverityState,
+{
+    #[inline]
+    fn trans(self) -> Report<E2, State> {
+        self.map_err(|e| e.into())
+    }
+}
+
+impl<T, E1, E2, State> Transform<Result<T, Report<E2, State>>> for Result<T, Report<E1, State>>
+where
+    E1: DiagnosticError + Into<E2>,
+    E2: Error + Send + Sync + 'static,
+    State: SeverityState,
+{
+    #[inline]
+    fn trans(self) -> Result<T, Report<E2, State>> {
+        self.map_err(|r| r.map_err(|e| e.into()))
+    }
+}
+

@@ -167,7 +167,6 @@ enum FileError {
 不再重复每个 `Report` 方法，而是提供单一组合子和只读查询：
 - `map_report(|r| r.with_ctx(...).with_severity(...))` — 仅在错误路径上应用任意 `Report` 方法链
 - `map_inner_err(|e| Outer::from(e))` — 转换内部错误类型，并保留所有诊断信息
-- `trans_inner_err()` — 转换内部错误类型的便捷快捷方式（当 `E: Into<NewE>` 时）
 - `into_inner_err()` — 丢弃诊断信息，返回 `Result<T, E>`
 - **只读查询**：用于在错误路径做只读查询，避免手动 `match Err(report)`：
   - `report_ref()`、`report_inner()`、`report_metadata()`、`report_attachments()`
@@ -236,7 +235,10 @@ fn boundary_op_simplified() -> Result<String, Report<ApiError>> {
 若 `E1` 实现了 `DiagnosticError`，且能够转换为 `E2`（即满足 `E1: Into<E2>`）：
 1. **`E1` -> `Report<E2>`**：将原始错误直接转换为目标类型的 `Report`。
 2. **`E1` -> `Result<T, Report<E2>>`**：将原始错误转换为包含目标类型 `Report` 的 `Result::Err`。
-3. **`Report<E1, State>` -> `Result<T, Report<E2, State>>`**：将已有的 `Report<E1>` 转换为包含映射后 `Report<E2>` 的 `Result::Err`，同时保留所有诊断上下文和附件。
+3. **`Report<E1, State>` -> `Report<E2, State>`**：将已有的 `Report<E1>` 转换为目标类型的 `Report<E2>`，保留所有诊断上下文、附件和 Severity 状态。
+4. **`Report<E1, State>` -> `Result<T, Report<E2, State>>`**：将已有的 `Report<E1>` 转换为包含映射后 `Report<E2>` 的 `Result::Err`，同时保留所有诊断上下文和附件。
+5. **`Result<T, Report<E1, State>>` -> `Result<T, Report<E2, State>>`**：将包含 `Report<E1>` 的 `Result` 转换为包含 `Report<E2>` 的 `Result`，保留所有诊断上下文和状态。
+
 
 ### 示例用法
 ```rust

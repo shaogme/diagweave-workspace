@@ -170,7 +170,6 @@ Instead of duplicating every `Report` method, this trait provides a single combi
 - `map_report(|r| ...)` — apply any chain of `Report` builder methods on the error path
 - `with_ctx()`, `attach_note()`, `set_severity()`, etc. — all `Report` builder methods are available directly on `Result<T, Report<E>>` and only execute on the `Err` path
 - `map_inner_err(|e| Outer::from(e))` — transform the inner error type while preserving all diagnostics
-- `trans_inner_err()` — convenient shortcut to convert the inner error type (when `E: Into<NewE>`)
 - `into_inner_err()` — discard diagnostics and return `Result<T, E>`
 - **Read-Only Helpers**: For error-path inspection without manually matching `Err`:
   - `report_ref()`, `report_inner()`, `report_metadata()`, `report_attachments()`
@@ -239,7 +238,10 @@ Provides a unified `.trans()` method to perform flexible, cross-layer, and cross
 If `E1` implements `DiagnosticError` and can be converted into `E2` (i.e., `E1: Into<E2>`):
 1. **`E1` -> `Report<E2>`**: Converts the raw error directly into a `Report` of the target type.
 2. **`E1` -> `Result<T, Report<E2>>`**: Converts the raw error into a `Result::Err` containing a `Report` of the target type.
-3. **`Report<E1, State>` -> `Result<T, Report<E2, State>>`**: Converts an existing `Report<E1>` into a `Result::Err` containing the mapped `Report<E2>`, while preserving all diagnostic context and attachments.
+3. **`Report<E1, State>` -> `Report<E2, State>`**: Converts an existing `Report<E1>` into a `Report<E2>` of the target type, preserving all diagnostic context, attachments, and severity state.
+4. **`Report<E1, State>` -> `Result<T, Report<E2, State>>`**: Converts an existing `Report<E1>` into a `Result::Err` containing the mapped `Report<E2>`, while preserving all diagnostic context and attachments.
+5. **`Result<T, Report<E1, State>>` -> `Result<T, Report<E2, State>>`**: Converts a `Result` containing `Report<E1>` into a `Result` containing the mapped `Report<E2>`, while preserving all diagnostic context and state.
+
 
 ### Usage Example
 ```rust

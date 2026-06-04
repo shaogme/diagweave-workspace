@@ -230,7 +230,6 @@ Common enrichers on `Result<T, Report<E>>`:
 
 - `map_report(|r| r.with_ctx(key, value).with_severity(...))` — apply any chain of `Report` builder methods on the error path
 - `map_inner_err(|e| Outer::from(e))` — transform the inner error type while preserving all diagnostics
-- `trans_inner_err()` — convenient shortcut to convert the inner error type (when `E: Into<NewE>`)
 - `trans()` — (from `Transform` trait) perform flexible conversions between error types, report types, and result types
 - `into_inner_err()` — discard diagnostics and return `Result<T, E>`
 
@@ -241,7 +240,9 @@ Common enrichers on `Result<T, Report<E>>`:
   `diagweave` provides the `Transform` trait with the `.trans()` method to simplify converting errors, reports, and results. When `E1` implements `DiagnosticError` and `E1: Into<E2>`:
   - Convert `E1` -> `Report<E2>`: `let r: Report<E2> = err.trans();`
   - Convert `E1` -> `Result<T, Report<E2>>`: `let res: Result<T, Report<E2>> = err.trans();`
+  - Convert `Report<E1, State>` -> `Report<E2, State>`: `let r2: Report<E2, State> = report.trans();` (convert the inner error type of Report, preserving all context and state).
   - Convert `Report<E1, State>` -> `Result<T, Report<E2, State>>`: `let res = report.trans();` (ideal for architectural boundaries).
+  - Convert `Result<T, Report<E1, State>>` -> `Result<T, Report<E2, State>>`: `let res2 = result.trans();` (directly convert the inner error type of the Report inside a Result, preserving all context and state).
 - **Chained Explicit Conversion (`to_report_res`)**:
   - On `Result<T, E>`, you can use `.to_report_res::<T, TargetE>()` to lift and directly convert the inner error type to `TargetE` (requires `E: Into<TargetE>`).
   - On macro-generated error types (`#[derive(Error)]`, `set!`, `union!`), you can use `.to_report::<NewE>()` (provided by the `DiagnosticError` trait) as a convenient shortcut to construct the target report object in a single step (requires `Self: Into<NewE>`).

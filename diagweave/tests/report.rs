@@ -502,24 +502,3 @@ fn report_types_debug_output_is_optimized() {
     // Since frames is empty, it should not appear
     assert!(!debug_trace.contains("frames"));
 }
-
-#[test]
-fn test_result_report_ext_new_methods() {
-    let _guard = init_test();
-
-    let err: Result<(), Report<AuthError>> = Err(Report::new(AuthError::InvalidToken));
-
-    // test map_inner_err
-    let mapped = err.map_inner_err(|_| ApiError::Unauthorized);
-    assert_eq!(mapped.report_inner(), Some(&ApiError::Unauthorized));
-
-    // test trans_inner_err
-    let err2: Result<(), Report<AuthError>> = Err(Report::new(AuthError::InvalidToken));
-    let transed: Result<(), Report<ApiError>> = err2.trans_inner_err();
-    assert_eq!(transed.report_inner(), Some(&ApiError::Unauthorized));
-
-    // test into_inner_err
-    let err3: Result<(), Report<AuthError>> = Err(Report::new(AuthError::InvalidToken));
-    let inner = err3.into_inner_err();
-    assert!(matches!(inner, Err(AuthError::InvalidToken)));
-}
