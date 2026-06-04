@@ -82,10 +82,8 @@ fn test_generic_from_conversion_for_set_errors() {
 
 #[test]
 fn test_set_to_report_trans() {
-    use diagweave::report::Report;
-
     let err_a = SetA::Variant1;
-    let report: Report<SetB> = err_a.to_report();
+    let report = err_a.to_report_trans();
 
     match report.inner() {
         SetB::Variant1 => {}

@@ -10,7 +10,15 @@ use super::{
 
 pub trait DiagnosticError: Error + Send + Sync + 'static {
     /// Converts the error into a `Report`.
-    fn to_report<NewE>(self) -> Report<NewE>
+    fn to_report(self) -> Report<Self>
+    where
+        Self: Sized,
+    {
+        Report::new(self)
+    }
+
+    /// Converts the error into a `Report`, but with a different error type.
+    fn to_report_trans<NewE>(self) -> Report<NewE>
     where
         Self: Sized + Into<NewE>,
         NewE: Error + Send + Sync + 'static,
@@ -34,6 +42,11 @@ pub trait DiagnosticError: Error + Send + Sync + 'static {
     }
 }
 
+impl DiagnosticError for core::fmt::Error {}
+
+#[cfg(feature = "std")]
+impl DiagnosticError for std::io::Error {}
+
 /// Helper trait to convert a type into a `Result`.
 pub trait IntoResult<T, E> {
     fn into_result(self) -> Result<T, E>;
@@ -56,14 +69,23 @@ pub trait DiagnosticResult {
     /// The error type.
     type Error;
 
+    /// Converts the type into a diagnostic result.
+    fn to_report_res<T>(self) -> Result<T, Report<Self::Error>>
+    where
+        Self: Sized + IntoResult<T, Self::Error>,
+        Self::Error: Error + Send + Sync + 'static;
+
     /// Converts the type into a diagnostic result, automatically converting the inner error
     /// type to `TargetE` via `Into`.
-    fn to_report_res<T, TargetE>(self) -> Result<T, Report<TargetE>>
+    fn to_report_res_trans<T, TargetE>(self) -> Result<T, Report<TargetE>>
     where
         Self: Sized + IntoResult<T, Self::Error>,
         Self::Error: Into<TargetE>,
         Self::Error: Error + Send + Sync + 'static,
-        TargetE: Error + Send + Sync + 'static;
+        TargetE: Error + Send + Sync + 'static,
+    {
+        self.to_report_res::<T>().map_err(|e| e.map_err(Into::into))
+    }
 
     /// Convenience: perform a transformation on the error path in a single step.
     ///
@@ -95,7 +117,7 @@ pub trait DiagnosticResult {
         Self::Error: Error + Send + Sync + 'static,
         State2: SeverityState,
     {
-        self.to_report_res::<T, Self::Error>().map_err(f)
+        self.to_report_res_trans::<T, Self::Error>().map_err(f)
     }
 
     fn to_report_note<T>(
@@ -106,7 +128,7 @@ pub trait DiagnosticResult {
         Self: Sized + IntoResult<T, Self::Error>,
         Self::Error: Error + Send + Sync + 'static,
     {
-        self.to_report_res::<T, Self::Error>().map_report(
+        self.to_report_res::<T>().map_report(
             |report: Report<Self::Error, MissingSeverity>| -> Report<Self::Error, MissingSeverity> {
                 Report::<Self::Error, MissingSeverity>::attach_note(report, message)
             },
@@ -117,14 +139,12 @@ pub trait DiagnosticResult {
 impl<T, E> DiagnosticResult for Result<T, E> {
     type Error = E;
 
-    fn to_report_res<T2, TargetE>(self) -> Result<T2, Report<TargetE>>
+    fn to_report_res<T2>(self) -> Result<T2, Report<Self::Error>>
     where
         Self: Sized + IntoResult<T2, Self::Error>,
-        Self::Error: Into<TargetE>,
         Self::Error: Error + Send + Sync + 'static,
-        TargetE: Error + Send + Sync + 'static,
     {
-        self.into_result().map_err(|e| Report::new(e.into()))
+        self.into_result().map_err(Report::new)
     }
 }
 
@@ -134,14 +154,12 @@ where
 {
     type Error = E;
 
-    fn to_report_res<T2, TargetE>(self) -> Result<T2, Report<TargetE>>
+    fn to_report_res<T2>(self) -> Result<T2, Report<Self::Error>>
     where
         Self: Sized + IntoResult<T2, Self::Error>,
-        Self::Error: Into<TargetE>,
         Self::Error: Error + Send + Sync + 'static,
-        TargetE: Error + Send + Sync + 'static,
     {
-        self.into_result().map_err(|e| Report::new(e.into()))
+        self.into_result().map_err(|e| Report::new(e))
     }
 }
 
@@ -405,7 +423,7 @@ where
 {
     #[inline]
     fn trans(self) -> Report<E2> {
-        self.to_report()
+        self.to_report_trans()
     }
 }
 
@@ -416,7 +434,7 @@ where
 {
     #[inline]
     fn trans(self) -> Result<T, Report<E2>> {
-        Err(self.to_report())
+        Err(self.to_report_trans())
     }
 }
 

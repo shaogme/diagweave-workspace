@@ -2,9 +2,9 @@ use std::{env, io};
 
 use diagweave::otel::{OtelEnvelopeConfig, OtelSdkEmitter};
 use diagweave::prelude::{
-    AttachmentValue, Compact, GlobalContext, HasSeverity, Pretty, Report, ReportRenderOptions,
-    ResultReportExt, Severity, TraceEventAttribute, TraceEventLevel, register_global_injector, set,
-    union,
+    AttachmentValue, Compact, DiagnosticError, DiagnosticResult, GlobalContext, HasSeverity,
+    Pretty, Report, ReportRenderOptions, ResultReportExt, Severity, TraceEventAttribute,
+    TraceEventLevel, Transform, register_global_injector, set, union,
 };
 use diagweave::render::{Json, PrettyIndent, REPORT_JSON_SCHEMA_VERSION};
 use opentelemetry::KeyValue;
@@ -46,7 +46,8 @@ mod payment {
     }
 
     fn declined_report(amount_cents: u64) -> Report<PaymentError, HasSeverity> {
-        Report::new(PaymentError::Declined)
+        PaymentError::Declined
+            .to_report()
             .with_error_code("PAYMENT.DECLINED")
             .with_severity(Severity::Warn)
             .with_category("payment")
@@ -82,7 +83,8 @@ mod payment {
     }
 
     fn timeout_report(amount_cents: u64) -> Report<PaymentError, HasSeverity> {
-        Report::new(PaymentError::from(NetworkError::Timeout(250)))
+        NetworkError::Timeout(250)
+            .to_report()
             .with_error_code("PAYMENT.TIMEOUT")
             .with_severity(Severity::Error)
             .with_category("payment")
@@ -118,6 +120,7 @@ mod payment {
                 ],
             )
             .with_ctx("payment_stage", "charge")
+            .trans()
     }
 
     fn network_report(
@@ -125,8 +128,8 @@ mod payment {
         io_kind: io::ErrorKind,
         io_message: String,
     ) -> Report<PaymentError, HasSeverity> {
-        let err = NetworkError::Io(io::Error::new(io_kind, io_message.clone()));
-        Report::new(PaymentError::from(err))
+        io::Error::new(io_kind, io_message.clone())
+            .to_report()
             .with_error_code("PAYMENT.NETWORK")
             .with_severity(Severity::Error)
             .with_category("payment")
@@ -159,6 +162,7 @@ mod payment {
                 ],
             )
             .with_ctx("payment_stage", "charge")
+            .trans()
     }
 
     /// Charges the payment provider for the given amount in cents.
@@ -223,7 +227,8 @@ mod order {
     }
 
     fn invalid_order_report(order_id: u64) -> Report<OrderError, HasSeverity> {
-        Report::new(OrderError::InvalidOrder { order_id })
+        OrderError::InvalidOrder { order_id }
+            .to_report()
             .with_error_code("ORDER.INVALID")
             .with_severity(Severity::Warn)
             .with_category("order")
@@ -297,12 +302,13 @@ mod gateway {
     }
 
     fn bad_request() -> Result<String, ScenarioReport> {
-        Err(Report::new(ScenarioError::BadRequest {
+        ScenarioError::BadRequest {
             reason: "missing auth header".to_owned(),
-        })
+        }
+        .to_report_res()
         .with_severity(Severity::Warn)
         .attach_note("gateway rejected request")
-        .with_ctx("route", "/v1/order"))
+        .with_ctx("route", "/v1/order")
     }
 
     fn payment_declined() -> Result<String, ScenarioReport> {

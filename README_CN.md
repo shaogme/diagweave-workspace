@@ -150,7 +150,7 @@ set! {
 补充说明：
 - 枚举可见性遵循 `set!` 声明（`pub` / `pub(crate)` / 私有）
 - `set!` 顶层属性会保留在生成的 enum 上
-- 自动生成 `source()` 方法，并自动实现 `DiagnosticError` trait（提供 `to_report()` 和 `diag()` 默认方法）
+- 自动生成 `source()` 方法，并自动实现 `DiagnosticError` trait（提供 `to_report()`、`to_report_trans()` 和 `diag()` 默认方法）
 
 ## `union!`
 
@@ -197,7 +197,7 @@ union! {
 - 外部类型自动委托 `Display`
 - 支持 `as Alias` 覆盖默认变体名
 - 自动实现 `Error`，缺少 `Debug`时自动补充
-- 自动生成 `source()` 方法，并自动实现 `DiagnosticError` trait（提供 `to_report()` 和 `diag()` 默认方法）
+- 自动生成 `source()` 方法，并自动实现 `DiagnosticError` trait（提供 `to_report()`、`to_report_trans()` 和 `diag()` 默认方法）
 
 ## 独立 `#[derive(Error)]`
 
@@ -217,13 +217,14 @@ pub enum MyError {
 }
 ```
 
-支持 `#[display("...")]`、`#[display(transparent)]`、`#[from]`、`#[source]`，并自动实现 `DiagnosticError` trait 以直接接入 `to_report()`、`diag()`。 
+支持 `#[display("...")]`、`#[display(transparent)]`、`#[from]`、`#[source]`，并自动实现 `DiagnosticError` trait 以直接接入 `to_report()`、`to_report_trans()`、`diag()`。 
 
 ## `Report` 与链式 API
 
 从 `Result<T, E>` 转换：
 
 - `to_report_res()`
+- `to_report_res_trans::<TargetE>()`
 - `to_report_note(message)`
 
 常用链式增强（`Result<T, Report<E>>`）：
@@ -243,9 +244,9 @@ pub enum MyError {
   - 转换 `Report<E1, State>` -> `Report<E2, State>`: `let r2: Report<E2, State> = report.trans();`（转换 Report 的内部错误类型，保留所有上下文和状态）。
   - 转换 `Report<E1, State>` -> `Result<T, Report<E2, State>>`: `let res = report.trans();`（极其适用于架构边界的错误转换与传播）。
   - 转换 `Result<T, Report<E1, State>>` -> `Result<T, Report<E2, State>>`: `let res2 = result.trans();`（直接转换 Result 内部 Report 的错误类型，保留所有上下文和状态）。
-- **链式显式转换 (`to_report_res`)**：
-  - 在 `Result<T, E>` 上可以使用 `.to_report_res::<T, TargetE>()` 提升并直接转换内部错误类型为 `TargetE`（要求 `E: Into<TargetE>`）。
-  - 在宏生成的错误类型（`#[derive(Error)]`、`set!`、`union!`）上可以通过 `DiagnosticError` trait 提供的 `.to_report::<NewE>()` 便捷地一步直接构造目标报告对象（要求 `Self: Into<NewE>`）。
+- **链式显式转换 (`to_report_res` / `to_report_res_trans` / `to_report_trans`)**：
+  - 在 `Result<T, E>` 上可以使用 `.to_report_res()` 提升内部错误为 `Report<E>`，或使用 `.to_report_res_trans::<_, TargetE>()` 提升并直接转换内部错误类型为 `TargetE`（要求 `E: Into<TargetE>`）。
+  - 在宏生成的错误类型（`#[derive(Error)]`、`set!`、`union!`）上可以使用 `.to_report()` 直接构造 `Report<Self>` 报告对象，或通过 `DiagnosticError` trait 提供的 `.to_report_trans::<NewE>()` 便捷地一步直接构造目标报告对象（要求 `Self: Into<NewE>`）。
   ```rust
   # use diagweave::prelude::{set, Report};
   # set! {

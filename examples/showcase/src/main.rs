@@ -213,12 +213,21 @@ fn api_handler(request_id: &'static str) -> Result<String, Report<ApiError, HasS
 /// Parses trace IDs from hardcoded strings.
 /// Returns an error report if any ID is invalid.
 fn parse_trace_ids() -> Result<(TraceId, SpanId, ParentSpanId), Report<ApiError, HasSeverity>> {
-    let trace_id = TraceId::from_str("4bf92f3577b34da6a3ce929d0e0e4736")
-        .map_err(|_| Report::new(ApiError::RetryLater(1)).with_severity(Severity::Error))?;
-    let span_id = SpanId::from_str("00f067aa0ba902b7")
-        .map_err(|_| Report::new(ApiError::RetryLater(1)).with_severity(Severity::Error))?;
-    let parent_span_id = ParentSpanId::from_str("1111111111111111")
-        .map_err(|_| Report::new(ApiError::RetryLater(1)).with_severity(Severity::Error))?;
+    let trace_id = TraceId::from_str("4bf92f3577b34da6a3ce929d0e0e4736").map_err(|_| {
+        ApiError::RetryLater(1)
+            .to_report()
+            .with_severity(Severity::Error)
+    })?;
+    let span_id = SpanId::from_str("00f067aa0ba902b7").map_err(|_| {
+        ApiError::RetryLater(1)
+            .to_report()
+            .with_severity(Severity::Error)
+    })?;
+    let parent_span_id = ParentSpanId::from_str("1111111111111111").map_err(|_| {
+        ApiError::RetryLater(1)
+            .to_report()
+            .with_severity(Severity::Error)
+    })?;
     Ok((trace_id, span_id, parent_span_id))
 }
 
@@ -400,7 +409,7 @@ fn demo_manual_stack_trace() {
     println!("--- Manual StackTrace API ---");
     let manual =
         StackTrace::new(StackTraceFormat::Raw).with_raw("manual::frame_a\nmanual::frame_b");
-    let report = Report::new(BaseError::Timeout(42)).with_stack_trace(manual);
+    let report = BaseError::Timeout(42).to_report().with_stack_trace(manual);
     println!("With stack trace: {}", report);
     let cleared = report.clear_stack_trace();
     println!("After clear: {}\n", cleared);
@@ -414,7 +423,8 @@ fn demo_type_conversion() {
 }
 
 fn demo_context_and_payloads() {
-    let report = Report::new(BaseError::Timeout(100))
+    let report = BaseError::Timeout(100)
+        .to_report()
         .with_ctx("tags", vec!["auth", "slow", "v2"])
         .with_ctx("score", 0.95)
         .with_ctx("byte_values", vec![0xDEu64, 0xAD, 0xBE, 0xEF])
@@ -457,10 +467,10 @@ fn demo_new_capabilities() {
     let ctor = CtorDemoError::UserLocked { user_id: 7 };
     println!("CtorDemoError: {}", ctor);
 
-    let variant_report: Report<AuthError> = AuthError::SessionExpired { user_id: 1001 }.to_report();
+    let variant_report = AuthError::SessionExpired { user_id: 1001 }.to_report();
     println!("Variant.to_report(): {}", variant_report);
 
-    let auto_ctx = Report::new(BaseError::Timeout(1500));
+    let auto_ctx = BaseError::Timeout(1500).to_report();
     println!(
         "global injector auto context: {}\n",
         auto_ctx
@@ -483,7 +493,7 @@ fn main() {
         id: "user_123".into(),
     };
     println!("Base constructor: {}", base);
-    let report_ctor = Report::new(AuthError::SessionExpired { user_id: 1001 });
+    let report_ctor = AuthError::SessionExpired { user_id: 1001 }.to_report();
     println!("Report helper constructor: {}\n", report_ctor);
 
     demo_new_capabilities();

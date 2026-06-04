@@ -44,7 +44,8 @@ set! {
 ### 生成方法/实现 (以 `AuthError` 为例)
 | 声明 | 返回类型 | 说明 |
 | :--- | :--- | :--- |
-| `DiagnosticError::to_report::<NewE>(self)` | `Report<NewE>` | (来自 `DiagnosticError` trait) 将错误实例转换为报告，支持可选的目标类型转换 (要求 `Self: Into<NewE>`，默认为 `Self`) |
+| `DiagnosticError::to_report(self)` | `Report<Self>` | (来自 `DiagnosticError` trait) 将错误实例转换为当前错误类型的报告 (要求 `Self: Sized`) |
+| `DiagnosticError::to_report_trans::<NewE>(self)` | `Report<NewE>` | (来自 `DiagnosticError` trait) 将错误实例转换为具有不同错误类型的报告 (要求 `Self: Into<NewE>`) |
 | `DiagnosticError::diag(self, f)` | `Report<E2, State2>` | (来自 `DiagnosticError` trait) 链式诊断信息构造的便捷入口 |
 | `AuthError::source(&self)` | `Option<&dyn Error>` | 读取底层 source 错误 |
 | `From<AuthError> for ServiceError` | `ServiceError` | 自动实现子集到超集的映射 |
@@ -102,7 +103,7 @@ union! {
 - **自动实现 `Display`**：对于外部类型，生成 `match` 分支调用 `inner.fmt(f)`；对于内联变体，基于 `#[display]` 模板生成渲染逻辑。
 - **自动实现 `Error`**：如果未提供 `Debug`，会自动附加 `#[derive(Debug)]`。
 - **From 注入**：为每一个外部成员类型注入 `impl From<T> for Union`。
-- **辅助方法与 trait**：自动实现 `DiagnosticError` 以获得 `to_report::<NewE>()` 和 `diag()` 默认方法，并自动生成 `source()` 方法。
+- **辅助方法与 trait**：自动实现 `DiagnosticError` 以获得 `to_report()`、`to_report_trans::<NewE>()` 和 `diag()` 默认方法，并自动生成 `source()` 方法。
 
 ---
 
@@ -122,7 +123,7 @@ union! {
 任何派生了 `Error` 的类型会自动获得以下辅助方法与 trait 实现：
 | 声明 | 返回类型/trait  | 说明 |
 | :--- | :--- | :--- |
-| `impl DiagnosticError` | `DiagnosticError` | 实现 `DiagnosticError` trait，从而自动获得 `to_report::<NewE>()` 和 `diag()` 辅助方法，并标记该客户端错误可以通过 `From` trait 自动转换为任何兼容的 `Report<NewE>` |
+| `impl DiagnosticError` | `DiagnosticError` | 实现 `DiagnosticError` trait，从而自动获得 `to_report()`、`to_report_trans::<NewE>()` 和 `diag()` 辅助方法，并标记该客户端错误可以通过 `From` trait 自动转换为任何兼容的 `Report<NewE>` |
 | `pub fn source(&self)` | `Option<&dyn Error>` | 便捷访问底层 Error 源 |
 
 此外，派生宏、`set!` 宏和 `union!` 宏会自动实现标记 trait  `DiagnosticError`。当目标错误类型满足 `NewE: From<E>` 时，允许直接将原始错误 `E` 转换为诊断报告：
@@ -156,7 +157,8 @@ enum FileError {
 
 ### 核心 trait
 #### 1. `DiagnosticResult` (作用于 `Result<T, E>`)
-- `to_report_res<TargetE>()`: 提升 `Err(E)` 为 `Err(Report<TargetE>)`，支持自动转换内部错误类型（要求 `E: Into<TargetE>`）。
+- `to_report_res()`: 提升 `Err(E)` 为 `Err(Report<E>)`，无需错误类型转换。
+- `to_report_res_trans::<TargetE>()`: 提升 `Err(E)` 为 `Err(Report<TargetE>)`，支持自动转换内部错误类型（要求 `E: Into<TargetE>`）。
 - `to_report_note(msg)`: 提升并注入备注。
 - `diag_res(...)`：Result<T, E> 上的快捷入口，泛型版本允许转换错误类型和状态类型；签名：
   `diag_res<E2, State2>(self, f: impl FnOnce(Report<E>) -> Report<E2, State2>) -> Result<T, Report<E2, State2>>`。

@@ -150,7 +150,7 @@ set! {
 Additional notes:
 - enum visibility follows the `set!` declaration (`pub`, `pub(crate)`, or private)
 - top-level attributes on the `set!` enum are preserved
-- auto helper: `source()` on the enum, and implementation of `DiagnosticError` trait (providing `to_report()` and `diag()` default methods)
+- auto helper: `source()` on the enum, and implementation of `DiagnosticError` trait (providing `to_report()`, `to_report_trans()`, and `diag()` default methods)
 
 ## `union!`
 
@@ -197,7 +197,7 @@ Highlights:
 - display delegation for wrapped external errors
 - `as Alias` for variant naming override
 - auto `Error` implementation and auto `Debug` backfill
-- auto helper: `source()` on the enum, and implementation of `DiagnosticError` trait (providing `to_report()` and `diag()` default methods)
+- auto helper: `source()` on the enum, and implementation of `DiagnosticError` trait (providing `to_report()`, `to_report_trans()`, and `diag()` default methods)
 
 ## Standalone `#[derive(Error)]`
 
@@ -217,13 +217,14 @@ pub enum MyError {
 }
 ```
 
-Supports `#[display(...)]`, `#[display(transparent)]`, `#[from]`, and `#[source]`, plus implementation of `DiagnosticError` (providing `to_report()` and `diag()` integration).
+Supports `#[display(...)]`, `#[display(transparent)]`, `#[from]`, and `#[source]`, plus implementation of `DiagnosticError` (providing `to_report()`, `to_report_trans()`, and `diag()` integration).
 
 ## `Report` and chain APIs
 
 From `Result<T, E>`:
 
 - `to_report_res()`
+- `to_report_res_trans::<TargetE>()`
 - `to_report_note(message)`
 
 Common enrichers on `Result<T, Report<E>>`:
@@ -243,9 +244,9 @@ Common enrichers on `Result<T, Report<E>>`:
   - Convert `Report<E1, State>` -> `Report<E2, State>`: `let r2: Report<E2, State> = report.trans();` (convert the inner error type of Report, preserving all context and state).
   - Convert `Report<E1, State>` -> `Result<T, Report<E2, State>>`: `let res = report.trans();` (ideal for architectural boundaries).
   - Convert `Result<T, Report<E1, State>>` -> `Result<T, Report<E2, State>>`: `let res2 = result.trans();` (directly convert the inner error type of the Report inside a Result, preserving all context and state).
-- **Chained Explicit Conversion (`to_report_res`)**:
-  - On `Result<T, E>`, you can use `.to_report_res::<T, TargetE>()` to lift and directly convert the inner error type to `TargetE` (requires `E: Into<TargetE>`).
-  - On macro-generated error types (`#[derive(Error)]`, `set!`, `union!`), you can use `.to_report::<NewE>()` (provided by the `DiagnosticError` trait) as a convenient shortcut to construct the target report object in a single step (requires `Self: Into<NewE>`).
+- **Chained Explicit Conversion (`to_report_res` / `to_report_res_trans` / `to_report_trans`)**:
+  - On `Result<T, E>`, you can use `.to_report_res()` to lift the inner error to `Report<E>`, or `.to_report_res_trans::<_, TargetE>()` to lift and directly convert the inner error type to `TargetE` (requires `E: Into<TargetE>`).
+  - On macro-generated error types (`#[derive(Error)]`, `set!`, `union!`), you can use `.to_report()` to construct a `Report<Self>` directly, or `.to_report_trans::<NewE>()` (provided by the `DiagnosticError` trait) as a convenient shortcut to construct the target report object in a single step (requires `Self: Into<NewE>`).
   ```rust
   # use diagweave::prelude::{set, Report};
   # set! {

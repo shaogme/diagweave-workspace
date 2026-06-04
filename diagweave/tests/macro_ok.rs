@@ -1,4 +1,4 @@
-use diagweave::{DiagnosticError, Report, set};
+use diagweave::{DiagnosticError, set};
 
 set! {
     AuthError = {
@@ -95,7 +95,7 @@ fn display_attribute_renders_structured_fields() {
 
 #[test]
 fn set_enum_provides_diag_helpers() {
-    let report: Report<AuthError> = AuthError::InvalidToken.to_report();
+    let report = AuthError::InvalidToken.to_report();
     assert_eq!(report.to_string(), "Invalid authentication token");
     assert!(AuthError::InvalidToken.source().is_none());
 }
