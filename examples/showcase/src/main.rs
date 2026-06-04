@@ -150,20 +150,19 @@ fn db_operation() -> Result<(), DatabaseError> {
 }
 
 fn service_layer(user_id: u64) -> Result<(), Report<AppError>> {
-    db_operation().diag_res(|r| {
-        r.with_ctx("user_id", user_id)
-            .attach_note("failing over to secondary database")
-            .with_display_cause("db operation failed")
-            .with_display_cause("query plan fallback selected")
-            .with_diag_src_err(io::Error::other("replica lag detected"))
-            .capture_stack_trace()
-            .map_err(|db_err| match db_err {
-                DatabaseError::ConnectionLost(io) => AppError::Io(io),
-                DatabaseError::ConstraintViolation { .. } => AppError::Internal {
-                    msg: "db constraint".into(),
-                },
-            })
-    })?;
+    db_operation()
+        .with_ctx("user_id", user_id)
+        .attach_note("failing over to secondary database")
+        .with_display_cause("db operation failed")
+        .with_display_cause("query plan fallback selected")
+        .with_diag_src_err(io::Error::other("replica lag detected"))
+        .capture_stack_trace()
+        .map_inner_err(|db_err| match db_err {
+            DatabaseError::ConnectionLost(io) => AppError::Io(io),
+            DatabaseError::ConstraintViolation { .. } => AppError::Internal {
+                msg: "db constraint".into(),
+            },
+        })?;
 
     Ok(())
 }
@@ -396,11 +395,9 @@ fn demo_specialized_stores() {
     let report = Result::<(), _>::Err(BaseError::NotFound {
         id: "item_1".into(),
     })
-    .diag_res(|r| {
-        r.with_display_cause("cache invalidated")
-            .with_display_cause(io::Error::other("hardware failure"))
-            .attach_note("local processing delayed")
-    })
+    .with_display_cause("cache invalidated")
+    .with_display_cause(io::Error::other("hardware failure"))
+    .attach_note("local processing delayed")
     .expect_err("demo");
     println!("Report:\n{}\n", report.pretty());
 }

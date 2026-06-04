@@ -98,11 +98,9 @@ fn verify(user_id: u64) -> Result<(), AuthError> {
 
 fn main() {
     let report: Report<AuthError> = verify(7)
-        .diag_res(|r| {
-            r.with_ctx("request_id", "req-001")
-                .with_ctx("retry", 0)
-                .attach_note("auth gate rejected")
-        })
+        .with_ctx("request_id", "req-001")
+        .with_ctx("retry", 0)
+        .attach_note("auth gate rejected")
         .expect_err("demo");
 
     println!("{}", report);          // 紧凑输出
@@ -150,7 +148,7 @@ set! {
 补充说明：
 - 枚举可见性遵循 `set!` 声明（`pub` / `pub(crate)` / 私有）
 - `set!` 顶层属性会保留在生成的 enum 上
-- 自动生成 `source()` 方法，并自动实现 `DiagnosticError` trait（提供 `to_report()`、`to_report_trans()` 和 `diag()` 默认方法）
+- 自动生成 `source()` 方法，并自动实现 `DiagnosticError` trait（提供 `to_report()`、`to_report_trans()` 和直接链式诊断方法）
 
 ## `union!`
 
@@ -197,7 +195,7 @@ union! {
 - 外部类型自动委托 `Display`
 - 支持 `as Alias` 覆盖默认变体名
 - 自动实现 `Error`，缺少 `Debug`时自动补充
-- 自动生成 `source()` 方法，并自动实现 `DiagnosticError` trait（提供 `to_report()`、`to_report_trans()` 和 `diag()` 默认方法）
+- 自动生成 `source()` 方法，并自动实现 `DiagnosticError` trait（提供 `to_report()`、`to_report_trans()` 和直接链式诊断方法）
 
 ## 独立 `#[derive(Error)]`
 
@@ -217,7 +215,7 @@ pub enum MyError {
 }
 ```
 
-支持 `#[display("...")]`、`#[display(transparent)]`、`#[from]`、`#[source]`，并自动实现 `DiagnosticError` trait 以直接接入 `to_report()`、`to_report_trans()`、`diag()`。 
+支持 `#[display("...")]`、`#[display(transparent)]`、`#[from]`、`#[source]`，并自动实现 `DiagnosticError` trait 以直接接入 `to_report()`、`to_report_trans()`、直接链式诊断方法。 
 
 ## `Report` 与链式 API
 

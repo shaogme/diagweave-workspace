@@ -3,7 +3,7 @@
 ## 1. `set!` Macro
 
 ### Overview
-Used to define a series of structured error enums (Error Sets). It automatically implements composition logic between sets, `From` conversions, report semantics, and implements the `DiagnosticError` trait (providing `to_report()`/`diag()` default methods) as well as generating `source()` helper methods.
+Used to define a series of structured error enums (Error Sets). It automatically implements composition logic between sets, `From` conversions, report semantics, and implements the `DiagnosticError` trait (providing `to_report()`, `to_report_trans()`, and direct diagnostic builder methods) as well as generating `source()` helper methods.
 
 ### Syntax Definition
 ```rust, ignore
@@ -46,7 +46,7 @@ set! {
 | :--- | :--- | :--- |
 | `DiagnosticError::to_report(self)` | `Report<Self>` | (From `DiagnosticError` trait) Converts error instance into a report of the same error type (requires `Self: Sized`). |
 | `DiagnosticError::to_report_trans::<NewE>(self)` | `Report<NewE>` | (From `DiagnosticError` trait) Converts error instance into a report of a different error type (requires `Self: Into<NewE>`). |
-| `DiagnosticError::diag(self, f)` | `Report<E2, State2>` | (From `DiagnosticError` trait) Shortcut entry for chaining diagnostic construction |
+| `DiagnosticError::[builder_method](self, ...)` | `Report<Self, _>` | (From `DiagnosticError` trait) Direct chained diagnostic construction method, bypassing manual conversion |
 | `AuthError::source(&self)` | `Option<&dyn Error>` | Access to the underlying error source |
 | `From<AuthError> for ServiceError` | `ServiceError` | Automatic mapping from subset to superset |
 
@@ -87,6 +87,7 @@ impl fmt::Display for AuthError {
 }
 
 impl std::error::Error for AuthError {}
+impl diagweave::prelude::DiagnosticError for AuthError {}
 
 union! {
     pub enum AppError = 
@@ -103,7 +104,7 @@ union! {
 - **Auto `Display`**: For external types, generates `match` branches calling `inner.fmt(f)`; for inline variants, generates rendering logic based on `#[display]`.
 - **Auto `Error`**: If `Debug` is not provided, `#[derive(Debug)]` is automatically attached.
 - **From Injection**: Injects `impl From<T> for Union` for every external member type.
-- **Helpers & Traits**: Automatically implements `DiagnosticError` to provide `to_report()`, `to_report_trans::<NewE>()`, and `diag()` default methods, and generates `source()` on the union enum.
+- **Helpers & Traits**: Automatically implements `DiagnosticError` to provide `to_report()`, `to_report_trans::<NewE>()`, and direct diagnostic builder methods, and generates `source()` on the union enum.
 
 ---
 
@@ -123,7 +124,7 @@ Provides convenient implementations of `Display` and `std::error::Error` traits 
 Any type deriving `Error` automatically gains the following helper methods and trait implementations:
 | Declaration | Return Type/Trait | Description |
 | :--- | :--- | :--- |
-| `impl DiagnosticError` | `DiagnosticError` | Implements `DiagnosticError` trait, which provides `to_report()`, `to_report_trans::<NewE>()`, and `diag()` helper methods, and marks this client error type for automatic conversion to any compatible `Report<NewE>` via the `From` trait |
+| `impl DiagnosticError` | `DiagnosticError` | Implements `DiagnosticError` trait, which provides `to_report()`, `to_report_trans::<NewE>()`, and direct diagnostic builder methods, and marks this client error type for automatic conversion to any compatible `Report<NewE>` via the `From` trait |
 | `pub fn source(&self)` | `Option<&dyn Error>` | Convenient access to the underlying error source |
 
 Furthermore, macro-generated/derived types (`#[derive(Error)]`, `set!`, and `union!`) automatically implement the marker trait `DiagnosticError`. If the target error type satisfies `NewE: From<E>`, the raw error `E` can be directly converted into a diagnostic report:
@@ -160,12 +161,7 @@ Provides pipelines for seamless diagnostic info injection on error paths by impl
 - `to_report_res()`: Lifts `Err(E)` to `Err(Report<E>)` without error type conversion.
 - `to_report_res_trans::<TargetE>()`: Lifts `Err(E)` to `Err(Report<TargetE>)`, supporting automatic conversion of the inner error (requires `E: Into<TargetE>`).
 - `to_report_note(msg)`: Lifts and injects note.
-- `diag_res(...)`: Short-hand for chaining a transformation on the error path. Generic signature:
-  `diag_res<E2, State2>(self, f: impl FnOnce(Report<E>) -> Report<E2, State2>) -> Result<T, Report<E2, State2>>`.
-  The closure receives a `Report<E>` and returns a `Report<E2, State2>`. When only adding metadata,
-  no explicit type annotations are needed; when transforming the error type (e.g., via `map_err`),
-  the return type must be annotated. If you need to control whether the origin source chain continues
-  to accumulate, configure the report options first via `set_accumulate_src_chain()`.
+- **Direct Chained Diagnostic Methods**: `Result<T, E> where E: DiagnosticError` now automatically supports all `Report` builder methods (such as `.with_ctx()`, `.attach_note()`, `.with_severity()`, etc.). These methods automatically wrap the error into a `Report` and apply the diagnostics on the `Err` path, passing through on the `Ok` path.
 
 #### 2. `ResultReportExt` (on `Result<T, Report<E>>`)
 Instead of duplicating every `Report` method, this trait provides a single combinator and read-only helpers:
@@ -218,7 +214,7 @@ fn process() -> Result<(), Report<io::Error, HasSeverity>> {
 // Example: Mapping error types while preserving diagnostics
 fn boundary_op() -> Result<String, Report<io::Error>> {
     fs::read_to_string("config.toml")
-        .diag_res(|r| r.attach_note("captured at boundary"))
+        .attach_note("captured at boundary")
         .map_inner_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
@@ -274,7 +270,7 @@ fn handle_request() -> Result<(), Report<ApiError>> {
 // Example 2: Report<E1> -> Result<T, Report<E2>>
 fn handle_request_with_ctx() -> Result<(), Report<ApiError>> {
     let report_e1: Report<DbError> = query_database()
-        .diag_res(|r| r.with_ctx("db", "users"))
+        .with_ctx("db", "users")
         .expect_err("captured");
         
     // Convert Report<DbError> into Result<_, Report<ApiError>>, retaining "db"="users" context
@@ -437,6 +433,7 @@ impl fmt::Display for DatabaseError {
 }
 
 impl std::error::Error for DatabaseError {}
+impl diagweave::prelude::DiagnosticError for DatabaseError {}
 
 #[derive(Debug)]
 enum AppError {
@@ -452,6 +449,7 @@ impl fmt::Display for AppError {
 }
 
 impl std::error::Error for AppError {}
+impl diagweave::prelude::DiagnosticError for AppError {}
 
 fn db_operation() -> Result<(), DatabaseError> {
     Err(DatabaseError)
@@ -459,11 +457,9 @@ fn db_operation() -> Result<(), DatabaseError> {
 
 fn service_layer() -> Result<(), Report<AppError>> {
     db_operation()
-        .diag_res(|r| {
-            r.with_ctx("db", "primary")
-                .set_accumulate_src_chain(true)
-                .map_err(AppError::Db)
-        })?;
+        .with_ctx("db", "primary")
+        .set_accumulate_src_chain(true)
+        .map_inner_err(AppError::Db)?;
     Ok(())
 }
 ```

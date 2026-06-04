@@ -145,11 +145,9 @@ fn result_ext_builds_report_chain() {
     let _guard = init_test();
 
     let err = fail_auth()
-        .diag_res(|r| {
-            r.with_ctx("request_id", 77u64)
-                .with_error_code("AUTH.INVALID_TOKEN")
-                .map_err(|_| ApiError::Unauthorized)
-        })
+        .with_ctx("request_id", 77u64)
+        .with_error_code("AUTH.INVALID_TOKEN")
+        .map_inner_err(|_| ApiError::Unauthorized)
         .expect_err("should fail");
 
     // Metadata is propagated to the outer error
@@ -167,7 +165,7 @@ fn result_ext_attach_payload_accepts_dynamic_media_type() {
 
     let media_type = "application/json".to_owned();
     let err = fail_auth()
-        .diag_res(|r| r.attach_payload("body", AttachmentValue::from("ok"), Some(media_type)))
+        .attach_payload("body", AttachmentValue::from("ok"), Some(media_type))
         .expect_err("should fail");
 
     assert!(matches!(
@@ -252,11 +250,9 @@ fn result_ext_diagweave_with_maps_error() {
     let _guard = init_test();
 
     let err = fail_auth()
-        .diag_res(|r| {
-            r.attach_note("incoming token is stale")
-                .with_category("auth")
-                .map_err(|_| ApiError::Wrapped { code: 403 })
-        })
+        .attach_note("incoming token is stale")
+        .with_category("auth")
+        .map_inner_err(|_| ApiError::Wrapped { code: 403 })
         .expect_err("should fail");
 
     assert_eq!(
@@ -285,10 +281,8 @@ fn lazy_context_and_note_evaluate_only_on_error() {
     assert_eq!(counter.get(), 0);
 
     let err = fail_auth()
-        .diag_res(|r| {
-            r.with_ctx("retry", ContextValue::Unsigned(3))
-                .attach_note("token stale")
-        })
+        .with_ctx("retry", ContextValue::Unsigned(3))
+        .attach_note("token stale")
         .expect_err("must fail");
     assert_eq!(err.to_string(), "auth invalid token [retry=3, token stale]");
 }

@@ -87,13 +87,12 @@ fn wrap_preserves_deep_source_chains() {
 fn result_inspect_ext_reads_report_fields() {
     let _guard = init_test();
 
-    let err: Result<(), Report<AuthError, HasSeverity>> = fail_auth().diag_res(|r| {
-        r.with_error_code("AUTH.INVALID_TOKEN")
-            .with_severity(Severity::Error)
-            .with_category("auth")
-            .with_retryable(false)
-            .with_ctx("request_id", "req-inspect")
-    });
+    let err: Result<(), Report<AuthError, HasSeverity>> = fail_auth()
+        .with_error_code("AUTH.INVALID_TOKEN")
+        .with_severity(Severity::Error)
+        .with_category("auth")
+        .with_retryable(false)
+        .with_ctx("request_id", "req-inspect");
 
     assert_eq!(
         err.report_error_code().map(ToString::to_string),
@@ -205,4 +204,22 @@ fn severity_parsing_is_explicit_and_rejects_unknown_values() {
 
     let err = Severity::parse("urgent").expect_err("unknown level should fail parsing");
     assert_eq!(err.invalid_value(), "urgent");
+}
+
+#[test]
+fn result_diagnostic_builder_ext_directly_on_result() {
+    let _guard = init_test();
+
+    let err = fail_auth()
+        .with_ctx("request_id", "direct-123")
+        .with_error_code("AUTH.DIRECT_CODE")
+        .with_severity(Severity::Error)
+        .expect_err("should fail");
+
+    assert_eq!(err.context().len(), 1);
+    assert_eq!(
+        err.metadata().error_code().map(ToString::to_string),
+        Some("AUTH.DIRECT_CODE".to_owned())
+    );
+    assert_eq!(err.severity(), Some(Severity::Error));
 }

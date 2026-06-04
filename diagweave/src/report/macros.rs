@@ -116,11 +116,11 @@ macro_rules! for_each_report_builder_method {
         }
         $callback! {
             /// Sets the severity for the report, transitioning to `HasSeverity` typestate.
-            fn set_severity(severity: crate::report::Severity) -> Result<T, crate::report::Report<E, crate::report::HasSeverity>> [STATE_CHANGE]
+            fn set_severity(severity: crate::report::Severity) -> crate::report::HasSeverity [STATE_CHANGE]
         }
         $callback! {
             /// Sets the severity only if not already set, transitioning to `HasSeverity` typestate.
-            fn with_severity(severity: crate::report::Severity) -> Result<T, crate::report::Report<E, crate::report::HasSeverity>> [STATE_CHANGE]
+            fn with_severity(severity: crate::report::Severity) -> crate::report::HasSeverity [STATE_CHANGE]
         }
     };
 }

@@ -3,7 +3,7 @@
 ## 1. `set!` 宏
 
 ### 概览
-用于定义一系列结构化的错误枚举（Error Set），自动实现集合间的组合逻辑、`From` 转换、报告语义，并实现 `DiagnosticError` trait（提供 `to_report()`/`diag()` 默认方法）以及生成 `source()` 辅助方法。
+用于定义一系列结构化的错误枚举（Error Set），自动实现集合间的组合逻辑、`From` 转换、报告语义，并实现 `DiagnosticError` trait（提供 `to_report()` 和直接链式诊断方法）以及生成 `source()` 辅助方法。
 
 ### 语法定义
 ```rust, ignore
@@ -46,7 +46,7 @@ set! {
 | :--- | :--- | :--- |
 | `DiagnosticError::to_report(self)` | `Report<Self>` | (来自 `DiagnosticError` trait) 将错误实例转换为当前错误类型的报告 (要求 `Self: Sized`) |
 | `DiagnosticError::to_report_trans::<NewE>(self)` | `Report<NewE>` | (来自 `DiagnosticError` trait) 将错误实例转换为具有不同错误类型的报告 (要求 `Self: Into<NewE>`) |
-| `DiagnosticError::diag(self, f)` | `Report<E2, State2>` | (来自 `DiagnosticError` trait) 链式诊断信息构造的便捷入口 |
+| `DiagnosticError::[builder_method](self, ...)` | `Report<Self, _>` | (来自 `DiagnosticError` trait) 直接链式调用诊断构造方法，免去手动 conversion |
 | `AuthError::source(&self)` | `Option<&dyn Error>` | 读取底层 source 错误 |
 | `From<AuthError> for ServiceError` | `ServiceError` | 自动实现子集到超集的映射 |
 
@@ -87,6 +87,7 @@ impl fmt::Display for AuthError {
 }
 
 impl std::error::Error for AuthError {}
+impl diagweave::prelude::DiagnosticError for AuthError {}
 
 union! {
     pub enum AppError = 
@@ -103,7 +104,7 @@ union! {
 - **自动实现 `Display`**：对于外部类型，生成 `match` 分支调用 `inner.fmt(f)`；对于内联变体，基于 `#[display]` 模板生成渲染逻辑。
 - **自动实现 `Error`**：如果未提供 `Debug`，会自动附加 `#[derive(Debug)]`。
 - **From 注入**：为每一个外部成员类型注入 `impl From<T> for Union`。
-- **辅助方法与 trait**：自动实现 `DiagnosticError` 以获得 `to_report()`、`to_report_trans::<NewE>()` 和 `diag()` 默认方法，并自动生成 `source()` 方法。
+- **辅助方法与 trait**：自动实现 `DiagnosticError` 以获得 `to_report()`、`to_report_trans::<NewE>()` 和直接链式诊断方法，并自动生成 `source()` 方法。
 
 ---
 
@@ -123,7 +124,7 @@ union! {
 任何派生了 `Error` 的类型会自动获得以下辅助方法与 trait 实现：
 | 声明 | 返回类型/trait  | 说明 |
 | :--- | :--- | :--- |
-| `impl DiagnosticError` | `DiagnosticError` | 实现 `DiagnosticError` trait，从而自动获得 `to_report()`、`to_report_trans::<NewE>()` 和 `diag()` 辅助方法，并标记该客户端错误可以通过 `From` trait 自动转换为任何兼容的 `Report<NewE>` |
+| `impl DiagnosticError` | `DiagnosticError` | 实现 `DiagnosticError` trait，从而自动获得 `to_report()`、`to_report_trans::<NewE>()` 和直接链式诊断方法，并标记该客户端错误可以通过 `From` trait 自动转换为任何兼容的 `Report<NewE>` |
 | `pub fn source(&self)` | `Option<&dyn Error>` | 便捷访问底层 Error 源 |
 
 此外，派生宏、`set!` 宏和 `union!` 宏会自动实现标记 trait  `DiagnosticError`。当目标错误类型满足 `NewE: From<E>` 时，允许直接将原始错误 `E` 转换为诊断报告：
@@ -160,10 +161,7 @@ enum FileError {
 - `to_report_res()`: 提升 `Err(E)` 为 `Err(Report<E>)`，无需错误类型转换。
 - `to_report_res_trans::<TargetE>()`: 提升 `Err(E)` 为 `Err(Report<TargetE>)`，支持自动转换内部错误类型（要求 `E: Into<TargetE>`）。
 - `to_report_note(msg)`: 提升并注入备注。
-- `diag_res(...)`：Result<T, E> 上的快捷入口，泛型版本允许转换错误类型和状态类型；签名：
-  `diag_res<E2, State2>(self, f: impl FnOnce(Report<E>) -> Report<E2, State2>) -> Result<T, Report<E2, State2>>`。
-  闭包接收 `Report<E>` 并返回 `Report<E2, State2>`。当仅添加元数据时无需显式类型标注；
-  当转换错误类型（如通过 `map_err`）时需要标注返回类型。若需要控制原生 source 链是否继续累积，可先通过 `set_accumulate_src_chain()` 配置报告选项。
+- **直接链式诊断方法**: `Result<T, E> where E: DiagnosticError` 现已自动支持所有 `Report` builder 方法（如 `.with_ctx()`, `.attach_note()`, `.with_severity()` 等），这些方法会在 `Err` 路径上自动将错误包装为 `Report` 并应用对应诊断方法，在 `Ok` 路径上直通。
 
 #### 2. `ResultReportExt` (作用于 `Result<T, Report<E>>`)
 不再重复每个 `Report` 方法，而是提供单一组合子和只读查询：
@@ -215,7 +213,7 @@ fn process() -> Result<(), Report<io::Error, HasSeverity>> {
 // 示例：在保留诊断信息的同时转换错误类型
 fn boundary_op() -> Result<String, Report<io::Error>> {
     fs::read_to_string("config.toml")
-        .diag_res(|r| r.attach_note("captured at boundary"))
+        .attach_note("captured at boundary")
         .map_inner_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
@@ -271,7 +269,7 @@ fn handle_request() -> Result<(), Report<ApiError>> {
 // 示例 2: Report<E1> -> Result<T, Report<E2>>
 fn handle_request_with_ctx() -> Result<(), Report<ApiError>> {
     let report_e1: Report<DbError> = query_database()
-        .diag_res(|r| r.with_ctx("db", "users"))
+        .with_ctx("db", "users")
         .expect_err("captured");
         
     // 将 Report<DbError> 转换为 Result<_, Report<ApiError>>，并保留 "db"="users" 上下文
@@ -434,6 +432,7 @@ impl fmt::Display for DatabaseError {
 }
 
 impl std::error::Error for DatabaseError {}
+impl diagweave::prelude::DiagnosticError for DatabaseError {}
 
 #[derive(Debug)]
 enum AppError {
@@ -449,6 +448,7 @@ impl fmt::Display for AppError {
 }
 
 impl std::error::Error for AppError {}
+impl diagweave::prelude::DiagnosticError for AppError {}
 
 fn db_operation() -> Result<(), DatabaseError> {
     Err(DatabaseError)
@@ -456,11 +456,9 @@ fn db_operation() -> Result<(), DatabaseError> {
 
 fn service_layer() -> Result<(), Report<AppError>> {
     db_operation()
-        .diag_res(|r| {
-            r.with_ctx("db", "primary")
-                .set_accumulate_src_chain(true)
-                .map_err(AppError::Db)
-        })?;
+        .with_ctx("db", "primary")
+        .set_accumulate_src_chain(true)
+        .map_inner_err(AppError::Db)?;
     Ok(())
 }
 ```

@@ -29,6 +29,7 @@ impl Display for AuthError {
 }
 
 impl Error for AuthError {}
+impl DiagnosticError for AuthError {}
 
 /// An error type for API failures.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +49,7 @@ impl Display for ApiError {
 }
 
 impl Error for ApiError {}
+impl DiagnosticError for ApiError {}
 
 /// An error type used to test recursive source detection.
 #[derive(Debug)]
@@ -64,6 +66,7 @@ impl Error for LoopError {
         Some(self)
     }
 }
+impl DiagnosticError for LoopError {}
 
 /// A minimal renderer implementation for testing.
 #[derive(Clone, Copy)]

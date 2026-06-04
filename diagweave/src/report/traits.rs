@@ -8,6 +8,37 @@ use super::{
     ReportSourceErrorIter, Severity, SeverityState, StackTrace,
 };
 
+macro_rules! define_diag_err_method {
+    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty),*) -> Self) => {
+        $(#[$attr])*
+        fn $name(self, $($arg: $ty),*) -> Report<Self, MissingSeverity>
+        where
+            Self: Sized,
+        {
+            self.to_report().$name($($arg),*)
+        }
+    };
+    ($(#[$attr:meta])* fn $name:ident <$($gen:ident),*> ($($arg:ident : $ty:ty $(,)? )* ) -> Self where $($bound:tt)*) => {
+        $(#[$attr])*
+        fn $name <$($gen),*> (self, $($arg: $ty),*) -> Report<Self, MissingSeverity>
+        where
+            Self: Sized,
+            $($bound)*
+        {
+            self.to_report().$name($($arg),*)
+        }
+    };
+    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty $(,)? )* ) -> $state:ty [STATE_CHANGE]) => {
+        $(#[$attr])*
+        fn $name(self, $($arg: $ty),*) -> Report<Self, $state>
+        where
+            Self: Sized,
+        {
+            self.to_report().$name($($arg),*)
+        }
+    };
+}
+
 pub trait DiagnosticError: Error + Send + Sync + 'static {
     /// Converts the error into a `Report`.
     fn to_report(self) -> Report<Self>
@@ -26,20 +57,7 @@ pub trait DiagnosticError: Error + Send + Sync + 'static {
         Report::new(self.into())
     }
 
-    /// Convenience: allow direct `.diag(...)` calls on client error types.
-    /// This is a generic variant that allows transforming both the error type
-    /// and the state type. When only adding metadata, no explicit type
-    /// annotations are needed.
-    fn diag<E2, State2>(
-        self,
-        f: impl FnOnce(Report<Self>) -> Report<E2, State2>,
-    ) -> Report<E2, State2>
-    where
-        Self: Sized,
-        State2: SeverityState,
-    {
-        f(self.to_report())
-    }
+    for_each_report_builder_method!(define_diag_err_method);
 }
 
 impl DiagnosticError for core::fmt::Error {}
@@ -64,10 +82,48 @@ impl<T, E: Error> IntoResult<T, E> for E {
     }
 }
 
+macro_rules! define_diag_res_method {
+    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty),*) -> Self) => {
+        $(#[$attr])*
+        fn $name<T>(self, $($arg: $ty),*) -> Result<T, Report<Self::Error, MissingSeverity>>
+        where
+            Self: Sized + IntoResult<T, Self::Error>,
+            Self::Error: Error + Send + Sync + 'static
+        {
+            self.to_report_res().map_err(|r| r.$name($($arg),*))
+        }
+    };
+    ($(#[$attr:meta])* fn $name:ident <$($gen:ident),*> ($($arg:ident : $ty:ty $(,)? )* ) -> Self where $($bound:tt)*) => {
+        $(#[$attr])*
+        fn $name <$($gen),* , T> (self, $($arg: $ty),*) -> Result<T, Report<Self::Error, MissingSeverity>>
+        where
+            Self: Sized + IntoResult<T, Self::Error>,
+            Self::Error: Error + Send + Sync + 'static,
+            $($bound)*
+        {
+            self.to_report_res().map_err(|r| r.$name($($arg),*))
+        }
+    };
+    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty $(,)? )* ) -> $state:ty [STATE_CHANGE]) => {
+        $(#[$attr])*
+        fn $name<T>(self, $($arg: $ty),*) -> Result<T, crate::report::Report<Self::Error, $state>>
+        where
+            Self: Sized + IntoResult<T, Self::Error>,
+            Self::Error: Error + Send + Sync + 'static
+        {
+            self.to_report_res().map_err(|r| r.$name($($arg),*))
+        }
+    };
+}
+
+type State = MissingSeverity;
+
 /// A trait for types that can be converted into a diagnostic result.
 pub trait DiagnosticResult {
     /// The error type.
     type Error;
+
+    for_each_report_builder_method!(define_diag_res_method);
 
     /// Converts the type into a diagnostic result.
     fn to_report_res<T>(self) -> Result<T, Report<Self::Error>>
@@ -87,39 +143,6 @@ pub trait DiagnosticResult {
         self.to_report_res::<T>().map_err(|e| e.map_err(Into::into))
     }
 
-    /// Convenience: perform a transformation on the error path in a single step.
-    ///
-    /// This is a generic variant that allows transforming both the error type
-    /// and the state type. When only adding metadata (context, notes, etc.),
-    /// no explicit type annotations are needed. When transforming the error
-    /// type (e.g., via `map_err`), the return type must be annotated.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // No type annotation needed when only adding metadata
-    /// fail_auth().diag_res(|r| {
-    ///     r.with_ctx("request_id", 77u64)
-    ///         .with_error_code("AUTH.INVALID_TOKEN")
-    /// })
-    ///
-    /// // Type annotation needed when transforming error type
-    /// let err: Result<(), Report<ApiError>> = fail_auth().diag_res(|r| {
-    ///     r.map_err(|_| ApiError::Unauthorized)
-    /// });
-    /// ```
-    fn diag_res<T, E2, State2>(
-        self,
-        f: impl FnOnce(Report<Self::Error>) -> Report<E2, State2>,
-    ) -> Result<T, Report<E2, State2>>
-    where
-        Self: Sized + IntoResult<T, Self::Error>,
-        Self::Error: Error + Send + Sync + 'static,
-        State2: SeverityState,
-    {
-        self.to_report_res_trans::<T, Self::Error>().map_err(f)
-    }
-
     fn to_report_note<T>(
         self,
         message: impl Display + Send + Sync + 'static,
@@ -136,7 +159,10 @@ pub trait DiagnosticResult {
     }
 }
 
-impl<T, E> DiagnosticResult for Result<T, E> {
+impl<T, E> DiagnosticResult for Result<T, E>
+where
+    E: DiagnosticError,
+{
     type Error = E;
 
     fn to_report_res<T2>(self) -> Result<T2, Report<Self::Error>>
@@ -163,20 +189,6 @@ where
     }
 }
 
-/// Extension trait for `Result<T, Report<E, State>>` to apply diagnostic transformations
-/// only on the error path, without duplicating every `Report` method.
-///
-/// # Example
-///
-/// ```ignore
-/// db_operation()
-///     .diag_res(|r| {
-///         r.with_ctx("user_id", user_id)
-///             .attach_note("failing over")
-///             .capture_stack_trace()
-///     })
-///     .map_err(|db_err| AppError::from(db_err))?;
-/// ```
 macro_rules! define_ext_method {
     ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty),*) -> Self) => {
         $(#[$attr])*
@@ -197,9 +209,9 @@ macro_rules! define_ext_method {
             self.into_result().map_err(|r| r.$name($($arg),*))
         }
     };
-    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty $(,)? )* ) -> Result<T, $report:ty> [STATE_CHANGE]) => {
+    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty $(,)? )* ) -> $state:ty [STATE_CHANGE]) => {
         $(#[$attr])*
-        fn $name<T>(self, $($arg: $ty),*) -> Result<T, $report>
+        fn $name<T>(self, $($arg: $ty),*) -> Result<T, crate::report::Report<E, $state>>
         where
             Self: Sized + IntoResult<T, Report<E, State>>
         {

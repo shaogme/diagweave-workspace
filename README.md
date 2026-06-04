@@ -98,11 +98,9 @@ fn verify(user_id: u64) -> Result<(), AuthError> {
 
 fn main() {
     let report: Report<AuthError> = verify(7)
-        .diag_res(|r| {
-            r.with_ctx("request_id", "req-001")
-                .with_ctx("retry", 0)
-                .attach_note("auth gate rejected")
-        })
+        .with_ctx("request_id", "req-001")
+        .with_ctx("retry", 0)
+        .attach_note("auth gate rejected")
         .expect_err("demo");
 
     println!("{}", report);          // compact output
@@ -150,7 +148,7 @@ set! {
 Additional notes:
 - enum visibility follows the `set!` declaration (`pub`, `pub(crate)`, or private)
 - top-level attributes on the `set!` enum are preserved
-- auto helper: `source()` on the enum, and implementation of `DiagnosticError` trait (providing `to_report()`, `to_report_trans()`, and `diag()` default methods)
+- auto helper: `source()` on the enum, and implementation of `DiagnosticError` trait (providing `to_report()`, `to_report_trans()`, and direct builder methods)
 
 ## `union!`
 
@@ -197,7 +195,7 @@ Highlights:
 - display delegation for wrapped external errors
 - `as Alias` for variant naming override
 - auto `Error` implementation and auto `Debug` backfill
-- auto helper: `source()` on the enum, and implementation of `DiagnosticError` trait (providing `to_report()`, `to_report_trans()`, and `diag()` default methods)
+- auto helper: `source()` on the enum, and implementation of `DiagnosticError` trait (providing `to_report()`, `to_report_trans()`, and direct builder methods)
 
 ## Standalone `#[derive(Error)]`
 
@@ -217,7 +215,7 @@ pub enum MyError {
 }
 ```
 
-Supports `#[display(...)]`, `#[display(transparent)]`, `#[from]`, and `#[source]`, plus implementation of `DiagnosticError` (providing `to_report()`, `to_report_trans()`, and `diag()` integration).
+Supports `#[display(...)]`, `#[display(transparent)]`, `#[from]`, and `#[source]`, plus implementation of `DiagnosticError` (providing `to_report()`, `to_report_trans()`, and direct builder methods).
 
 ## `Report` and chain APIs
 
