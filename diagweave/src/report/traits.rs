@@ -484,4 +484,3 @@ where
         self.map_err(|e| e.to_report_trans())
     }
 }
-
