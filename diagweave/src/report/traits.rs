@@ -180,35 +180,28 @@ where
 macro_rules! define_ext_method {
     ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty),*) -> Self) => {
         $(#[$attr])*
-        fn $name(self, $($arg: $ty),*) -> Self;
+        fn $name<T>(self, $($arg: $ty),*) -> Result<T, Report<E, State>>
+        where
+            Self: Sized + IntoResult<T, Report<E, State>>
+        {
+            self.into_result().map_err(|r| r.$name($($arg),*))
+        }
     };
     ($(#[$attr:meta])* fn $name:ident <$($gen:ident),*> ($($arg:ident : $ty:ty $(,)? )* ) -> Self where $($bound:tt)*) => {
         $(#[$attr])*
-        fn $name <$($gen),*> (self, $($arg: $ty),*) -> Self where $($bound)*;
+        fn $name <$($gen),* , T> (self, $($arg: $ty),*) -> Result<T, Report<E, State>>
+        where
+            Self: Sized + IntoResult<T, Report<E, State>>,
+            $($bound)*
+        {
+            self.into_result().map_err(|r| r.$name($($arg),*))
+        }
     };
     ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty $(,)? )* ) -> Result<T, $report:ty> [STATE_CHANGE]) => {
         $(#[$attr])*
         fn $name<T>(self, $($arg: $ty),*) -> Result<T, $report>
         where
-            Self: Sized + IntoResult<T, Report<E, State>>;
-    };
-}
-
-macro_rules! impl_ext_method {
-    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty),*) -> Self) => {
-        fn $name(self, $($arg: $ty),*) -> Self {
-            self.map_err(|r| r.$name($($arg),*))
-        }
-    };
-    ($(#[$attr:meta])* fn $name:ident <$($gen:ident),*> ($($arg:ident : $ty:ty $(,)? )* ) -> Self where $($bound:tt)*) => {
-        fn $name <$($gen),*> (self, $($arg: $ty),*) -> Self where $($bound)* {
-            self.map_err(|r| r.$name($($arg),*))
-        }
-    };
-    ($(#[$attr:meta])* fn $name:ident($($arg:ident : $ty:ty $(,)? )* ) -> Result<T, $report:ty> [STATE_CHANGE]) => {
-        fn $name<T2>(self, $($arg: $ty),*) -> Result<T2, $report>
-        where
-            Self: Sized + IntoResult<T2, Report<E, State>>
+            Self: Sized + IntoResult<T, Report<E, State>>
         {
             self.into_result().map_err(|r| r.$name($($arg),*))
         }
@@ -399,8 +392,6 @@ impl<T, E, State> ResultReportExt<E, State> for Result<T, Report<E, State>>
 where
     State: SeverityState,
 {
-    for_each_report_builder_method!(impl_ext_method);
-
     fn report_ref<'a>(&'a self) -> Option<&'a Report<E, State>>
     where
         State: 'a,
