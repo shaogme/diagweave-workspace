@@ -169,6 +169,14 @@ pub struct DiagnosticBag {
 }
 
 impl DiagnosticBag {
+    /// Returns true if any diagnostic field is present in the bag.
+    pub fn has_diagnostics(&self) -> bool {
+        self.stack_trace().is_some()
+            || !self.context().is_empty()
+            || !self.system().is_empty()
+            || !self.attachments().is_empty()
+    }
+
     /// Creates a new empty `DiagnosticBag` with no allocation.
     pub fn new() -> Self {
         Self::default()

@@ -176,6 +176,14 @@ impl<State: SeverityState> fmt::Debug for ReportMetadata<State> {
 }
 
 impl<State: SeverityState> ReportMetadata<State> {
+    /// Returns true if any metadata field is present.
+    pub fn has_metadata(&self) -> bool {
+        self.severity().is_some()
+            || self.error_code().is_some()
+            || self.category().is_some()
+            || self.retryable().is_some()
+    }
+
     /// Returns a reference to the severity state.
     pub fn severity(&self) -> Option<Severity> {
         self.severity.severity()

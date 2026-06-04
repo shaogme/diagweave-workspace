@@ -1,6 +1,8 @@
 use core::error::Error;
 use core::fmt::Display;
 
+use alloc::sync::Arc;
+
 use super::{
     Attachment, ContextMap, ErrorCode, MissingSeverity, Report, ReportMetadata, ReportOptions,
     ReportSourceErrorIter, Severity, SeverityState, StackTrace,
@@ -308,7 +310,7 @@ where
     /// Returns the report's display causes on the error path, or `None`.
     fn report_display_causes(
         &self,
-    ) -> Option<&[alloc::sync::Arc<dyn core::fmt::Display + Send + Sync>]>;
+    ) -> Option<&[Arc<dyn core::fmt::Display + Send + Sync>]>;
 
     /// Returns an iterator over the report's origin source errors on the error path, or `None`.
     fn report_iter_origin_sources(&self) -> Option<ReportSourceErrorIter<'_>>
@@ -375,7 +377,7 @@ where
 
     fn report_display_causes(
         &self,
-    ) -> Option<&[alloc::sync::Arc<dyn core::fmt::Display + Send + Sync>]> {
+    ) -> Option<&[Arc<dyn core::fmt::Display + Send + Sync>]> {
         self.report_ref().map(Report::<E, State>::display_causes)
     }
 

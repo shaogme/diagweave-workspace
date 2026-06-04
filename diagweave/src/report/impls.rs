@@ -11,7 +11,9 @@ use super::{Report, SeverityState};
 /// Writes ", " before the field if idx > 0, then increments idx.
 macro_rules! write_field {
     ($f:expr, $idx:expr, $name:expr, $val:expr) => {{
-        if $idx > 0 {
+        if $idx == 0 {
+            write!($f, " [")?;
+        } else {
             write!($f, ", ")?;
         }
         write!($f, "{}={}", $name, $val)?;
@@ -23,7 +25,9 @@ macro_rules! write_field {
 /// Writes ", " before the content if idx > 0, then increments idx.
 macro_rules! write_raw {
     ($f:expr, $idx:expr, $($arg:tt)*) => {{
-        if $idx > 0 {
+        if $idx == 0 {
+            write!($f, " [")?;
+        } else {
             write!($f, ", ")?;
         }
         write!($f, $($arg)*)?;
@@ -85,15 +89,9 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", Report::<E, State>::inner(self))?;
         let metadata = Report::<E, State>::metadata(self);
-        let has_metadata = metadata.error_code().is_some()
-            || Report::<E, State>::severity(self).is_some()
-            || metadata.category().is_some()
-            || metadata.retryable().is_some();
+        let has_metadata = metadata.has_metadata();
         let diag: &super::DiagnosticBag = Report::<E, State>::diagnostics(self);
-        let has_diagnostics = diag.stack_trace().is_some()
-            || !diag.context().is_empty()
-            || !diag.system().is_empty()
-            || !diag.attachments().is_empty()
+        let has_diagnostics = diag.has_diagnostics()
             || {
                 #[cfg(feature = "trace")]
                 {
@@ -111,7 +109,10 @@ where
         let mut idx = 0usize;
         Report::<E, State>::fmt_metadata_fields(self, f, &mut idx)?;
         Report::<E, State>::fmt_diag_fields(self, f, &mut idx)?;
-        write!(f, "]")
+        if idx > 0 {
+            write!(f, "]")?;
+        }
+        Ok(())
     }
 }
 
