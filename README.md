@@ -65,14 +65,14 @@ Benefits:
 
 ```toml
 [dependencies]
-diagweave = "0.2"
+diagweave = "0.3"
 ```
 
 If you do not need default features:
 
 ```toml
 [dependencies]
-diagweave = { version = "0.1", default-features = false }
+diagweave = { version = "0.3", default-features = false }
 ```
 
 With `default-features = false`, `diagweave` supports `no_std + alloc`.
