@@ -227,9 +227,59 @@ fn boundary_op_simplified() -> Result<String, Report<ApiError>> {
 }
 ```
 
+## 5. 通用转换 Trait (`Transform`)
+
+### 概览
+提供统一的 `.trans()` 方法，用于在错误类型、报告类型以及结果类型之间进行灵活的跨层级、跨类型转换。它特别适用于在架构边界（例如 Service 层到 API 层）需要将底层错误转换为带有不同错误类型的 `Report` 或 `Result<T, Report<TargetE>>` 的场景。
+
+### 支持的转换模式
+若 `E1` 实现了 `DiagnosticError`，且能够转换为 `E2`（即满足 `E1: Into<E2>`）：
+1. **`E1` -> `Report<E2>`**：将原始错误直接转换为目标类型的 `Report`。
+2. **`E1` -> `Result<T, Report<E2>>`**：将原始错误转换为包含目标类型 `Report` 的 `Result::Err`。
+3. **`Report<E1, State>` -> `Result<T, Report<E2, State>>`**：将已有的 `Report<E1>` 转换为包含映射后 `Report<E2>` 的 `Result::Err`，同时保留所有诊断上下文和附件。
+
+### 示例用法
+```rust
+use diagweave::prelude::*;
+
+#[derive(diagweave::Error, Debug)]
+#[display("database error")]
+struct DbError;
+
+#[derive(diagweave::Error, Debug)]
+#[display("api error")]
+enum ApiError {
+    #[display("internal service failure")]
+    Internal(#[from] DbError),
+}
+
+fn query_database() -> Result<(), DbError> {
+    Err(DbError)
+}
+
+// 示例 1: E1 -> Result<T, Report<E2>>
+fn handle_request() -> Result<(), Report<ApiError>> {
+    // query_database() 返回 Result<(), DbError>
+    // 使用 .trans() 可以一步将其内部的 DbError 转换为 Report<ApiError>
+    query_database().map_err(|e| e.trans())
+}
+
+// 示例 2: Report<E1> -> Result<T, Report<E2>>
+fn handle_request_with_ctx() -> Result<(), Report<ApiError>> {
+    let report_e1: Report<DbError> = query_database()
+        .diag_res(|r| r.with_ctx("db", "users"))
+        .expect_err("captured");
+        
+    // 将 Report<DbError> 转换为 Result<_, Report<ApiError>>，并保留 "db"="users" 上下文
+    let res: Result<(), Report<ApiError>> = report_e1.trans();
+    res?;
+    Ok(())
+}
+```
+
 ---
 
-## 5. 展示原因收集
+## 6. 展示原因收集
 
 ### 概览
 负责管理诊断发生的诱因链。`diagweave` 的优势在于它不仅支持 `std::error::Error` 链，还支持跨线程/跨进程的事件消息。
@@ -251,7 +301,7 @@ fn boundary_op_simplified() -> Result<String, Report<ApiError>> {
 | `Array` | `Vec<AttachmentValue>` | 列表/序列 |
 | `Object` | `BTreeMap<String, AttachmentValue>`| 键值对映射 |
 | `Bytes` | `Vec<u8>` | 二进制数据内容 |
-| `Redacted` | `{kind, reason}` | 脱敏数据占位符 |
+| `Redacted` | `{kind, reason}` | 脱敏 data 占位符 |
 
 Note 附件读取：
 - `Attachment::as_note() -> Option<String>`：返回物化后的 note 文本。
@@ -259,7 +309,7 @@ Note 附件读取：
 
 ---
 
-## 6. 日志系统集成 (`Tracing`)
+## 7. 日志系统集成 (`Tracing`)
 
 ### 概览
 将诊断报告导出到监控系统或日志流。
@@ -334,7 +384,7 @@ report
 
 ---
 
-## 7. 高阶模式 (Advanced Patterns)
+## 8. 高阶模式 (Advanced Patterns)
 
 ### 1. 复杂附件：结构化 JSON 关联
 利用 `serde_json` 宏直接注入结构化数据。

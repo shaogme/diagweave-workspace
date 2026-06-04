@@ -402,3 +402,43 @@ where
         self.as_ref().err()
     }
 }
+
+/// A trait for performing conversions to diagnostic reports or results.
+pub trait Transform<Target> {
+    /// Perform the conversion.
+    fn trans(self) -> Target;
+}
+
+impl<E1, E2> Transform<Report<E2>> for E1
+where
+    E1: DiagnosticError + Into<E2>,
+    E2: Error + Send + Sync + 'static,
+{
+    #[inline]
+    fn trans(self) -> Report<E2> {
+        self.to_report()
+    }
+}
+
+impl<T, E1, E2> Transform<Result<T, Report<E2>>> for E1
+where
+    E1: DiagnosticError + Into<E2>,
+    E2: Error + Send + Sync + 'static,
+{
+    #[inline]
+    fn trans(self) -> Result<T, Report<E2>> {
+        Err(self.to_report())
+    }
+}
+
+impl<T, E1, E2, State> Transform<Result<T, Report<E2, State>>> for Report<E1, State>
+where
+    E1: DiagnosticError + Into<E2>,
+    E2: Error + Send + Sync + 'static,
+    State: SeverityState,
+{
+    #[inline]
+    fn trans(self) -> Result<T, Report<E2, State>> {
+        Err(self.map_err(|e| e.into()))
+    }
+}

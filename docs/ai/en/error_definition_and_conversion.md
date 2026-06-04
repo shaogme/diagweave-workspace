@@ -230,9 +230,59 @@ fn boundary_op_simplified() -> Result<String, Report<ApiError>> {
 }
 ```
 
+## 5. Universal Conversion Trait (`Transform`)
+
+### Overview
+Provides a unified `.trans()` method to perform flexible, cross-layer, and cross-type conversions between raw error types, report types, and result types. It is particularly useful at architectural boundaries (e.g., from the Service layer to the API layer) where you need to transition from low-level errors into a `Report` or a `Result<T, Report<TargetE>>` with a different target error type.
+
+### Supported Conversion Patterns
+If `E1` implements `DiagnosticError` and can be converted into `E2` (i.e., `E1: Into<E2>`):
+1. **`E1` -> `Report<E2>`**: Converts the raw error directly into a `Report` of the target type.
+2. **`E1` -> `Result<T, Report<E2>>`**: Converts the raw error into a `Result::Err` containing a `Report` of the target type.
+3. **`Report<E1, State>` -> `Result<T, Report<E2, State>>`**: Converts an existing `Report<E1>` into a `Result::Err` containing the mapped `Report<E2>`, while preserving all diagnostic context and attachments.
+
+### Usage Example
+```rust
+use diagweave::prelude::*;
+
+#[derive(diagweave::Error, Debug)]
+#[display("database error")]
+struct DbError;
+
+#[derive(diagweave::Error, Debug)]
+#[display("api error")]
+enum ApiError {
+    #[display("internal service failure")]
+    Internal(#[from] DbError),
+}
+
+fn query_database() -> Result<(), DbError> {
+    Err(DbError)
+}
+
+// Example 1: E1 -> Result<T, Report<E2>>
+fn handle_request() -> Result<(), Report<ApiError>> {
+    // query_database() returns Result<(), DbError>
+    // Use .trans() to convert the inner DbError into Report<ApiError> in a single step
+    query_database().map_err(|e| e.trans())
+}
+
+// Example 2: Report<E1> -> Result<T, Report<E2>>
+fn handle_request_with_ctx() -> Result<(), Report<ApiError>> {
+    let report_e1: Report<DbError> = query_database()
+        .diag_res(|r| r.with_ctx("db", "users"))
+        .expect_err("captured");
+        
+    // Convert Report<DbError> into Result<_, Report<ApiError>>, retaining "db"="users" context
+    let res: Result<(), Report<ApiError>> = report_e1.trans();
+    res?;
+    Ok(())
+}
+```
+
 ---
 
-## 5. Display Cause Collection
+## 6. Display Cause Collection
 
 ### Overview
 Manages the chain of triggers for a diagnostic. `diagweave` supports not only `std::error::Error` chains but also cross-thread/cross-process event messages.
@@ -262,7 +312,7 @@ Attachment note access:
 
 ---
 
-## 6. Log System Integration (`Tracing`)
+## 7. Log System Integration (`Tracing`)
 
 ### Overview
 Exports diagnostic reports to monitoring systems or log streams.
@@ -337,7 +387,7 @@ report
 
 ---
 
-## 7. Advanced Patterns
+## 8. Advanced Patterns
 
 ### 1. Complex Attachments: Structured JSON Correlation
 Leverage `serde_json` macro to inject structured data directly.

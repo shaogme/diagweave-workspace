@@ -15,7 +15,7 @@ mod utils;
 
 pub use diagweave_macros::{Error, set, union};
 pub use ref_str::{RefStr, StaticRefStr};
-pub use report::{DiagnosticError, DiagnosticResult, Report};
+pub use report::{DiagnosticError, DiagnosticResult, Report, Transform};
 
 #[cfg(doctest)]
 #[doc = include_str!("../../README.md")]
@@ -68,7 +68,7 @@ pub mod report {
         HasSeverity, IntoResult, MissingSeverity, Report, ReportMetadata, ReportOptions,
         ReportSourceErrorIter, ResultReportExt, Severity, SeverityParseError, SeverityState,
         SourceErrorChain, SourceErrorEntry, SourceErrorItem, StackFrame, StackTrace,
-        StackTraceFormat,
+        StackTraceFormat, Transform,
     };
     #[cfg(feature = "std")]
     pub use crate::report_impl::{
@@ -101,6 +101,7 @@ pub mod prelude {
     pub use crate::report::{
         AttachmentValue, ContextMap, ContextValue, DiagnosticError, DiagnosticResult, HasSeverity,
         MissingSeverity, Report, ResultReportExt, Severity, SeverityState, SourceErrorItem,
+        Transform,
     };
     #[cfg(feature = "std")]
     pub use crate::report::{GlobalContext, register_global_injector};
