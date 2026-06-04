@@ -23,7 +23,7 @@ categories = ["rust-patterns", "development-tools::debugging"]
 
 # Internal Crates
 diagweave = { path = "diagweave" }
-diagweave-macros = { path = "diagweave-macros", version = "0.1.2" }
+diagweave-macros = { path = "diagweave-macros", version = "0.2.0" }
 
 # External Crates
 tracing = { version = "0.1", default-features = false }
