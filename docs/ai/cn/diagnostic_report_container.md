@@ -214,6 +214,8 @@ let report3 = Report::new(error3).set_options(
 - `set_*` 方法写入指定诊断项；若目标字段或 key 已存在则覆盖其值
 - `with_*` 方法仅在目标字段或 key 未设置时才设置值（条件/保留语义）
 
+**`StaticRefStr` 闭包供应器**：所有参数类型为 `impl Into<StaticRefStr>` 的位置都可以直接传入 `FnOnce() -> R` 闭包，只要 `R` 本身可转换为 `StaticRefStr`。闭包会在参数实际转换时执行；通过 `Result<T, E>` 或 `Result<T, Report<E>>` 的链式扩展调用时，`Ok` 路径不会执行这些供应器。该能力只适用于 `StaticRefStr` 参数位置，`ContextValue`、`AttachmentValue` 等值参数仍按各自的 `Into` 规则转换。
+
 | 方法 | 参数类型 | 说明 |
 | :--- | :--- | :--- |
 | `with_ctx` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | 添加业务上下文键值对；若 key 已存在则保留原值 |
@@ -282,13 +284,14 @@ impl std::error::Error for MyError {}
 
 let report = Report::new(MyError::Timeout)
     .with_severity(Severity::Fatal)
+    .with_category(|| "network")
     .with_ctx(
-        "request_id",
+        || "request_id",
         "req-123",
     )
     .attach_note("please check the network connection")
     .with_retryable(true)
-    .attach_payload("data", vec![1, 2, 3], Some("application/octet-stream"));
+    .attach_payload(|| "data", vec![1, 2, 3], Some(|| "application/octet-stream"));
 #[cfg(feature = "std")]
 let report = report.capture_stack_trace();
 ```

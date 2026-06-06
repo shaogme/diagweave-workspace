@@ -225,6 +225,154 @@ fn result_ext_attach_payload_accepts_dynamic_media_type() {
 }
 
 #[test]
+fn report_builder_static_ref_str_params_accept_fn_once_suppliers() {
+    let _guard = init_test();
+
+    let ctx_key = "request_id".to_owned();
+    let system_key = "host".to_owned();
+    let category = "auth".to_owned();
+    let payload_name = "body".to_owned();
+    let media_type = "text/plain".to_owned();
+    let skipped_category_supplier = std::cell::Cell::new(0usize);
+
+    let report = Report::new(AuthError::InvalidToken)
+        .with_ctx(move || ctx_key, "first")
+        .set_ctx(|| "request_id", "second")
+        .with_system(move || system_key, "web-1")
+        .set_system(|| "host", "web-2")
+        .set_category(move || category)
+        .with_category(|| {
+            skipped_category_supplier.set(skipped_category_supplier.get() + 1);
+            "ignored"
+        })
+        .attach_payload(
+            move || payload_name,
+            AttachmentValue::from("ok"),
+            Some(move || media_type),
+        );
+
+    assert_eq!(skipped_category_supplier.get(), 0);
+    assert_eq!(report.context().len(), 1);
+    assert_eq!(
+        report
+            .context()
+            .iter()
+            .next()
+            .map(|(key, value)| (key.as_ref().to_owned(), value.clone())),
+        Some((
+            "request_id".to_owned(),
+            ContextValue::String("second".into())
+        ))
+    );
+    assert_eq!(report.system().len(), 1);
+    assert_eq!(
+        report
+            .system()
+            .iter()
+            .next()
+            .map(|(key, value)| (key.as_ref().to_owned(), value.clone())),
+        Some((
+            "host".to_owned(),
+            ContextValue::String("web-2".into())
+        ))
+    );
+    assert_eq!(report.category(), Some("auth"));
+    assert!(matches!(
+        &report.attachments()[0],
+        Attachment::Payload {
+            name,
+            value: AttachmentValue::String(value),
+            media_type: Some(media_type),
+        } if name == "body"
+            && value == "ok"
+            && media_type == "text/plain"
+    ));
+}
+
+#[test]
+fn result_builder_static_ref_str_suppliers_are_err_path_lazy() {
+    let _guard = init_test();
+
+    let ok_supplier_calls = std::cell::Cell::new(0usize);
+    let ok: Result<(), AuthError> = Ok(());
+    let ok = ok
+        .with_ctx(
+            || {
+                ok_supplier_calls.set(ok_supplier_calls.get() + 1);
+                "request_id"
+            },
+            "ok",
+        )
+        .with_category(|| {
+            ok_supplier_calls.set(ok_supplier_calls.get() + 1);
+            "auth"
+        })
+        .attach_payload(
+            || {
+                ok_supplier_calls.set(ok_supplier_calls.get() + 1);
+                "body"
+            },
+            AttachmentValue::from("ok"),
+            Some(|| {
+                ok_supplier_calls.set(ok_supplier_calls.get() + 1);
+                "text/plain"
+            }),
+        );
+
+    assert!(ok.is_ok());
+    assert_eq!(ok_supplier_calls.get(), 0);
+
+    let err_supplier_calls = std::cell::Cell::new(0usize);
+    let err = fail_auth()
+        .with_ctx(
+            || {
+                err_supplier_calls.set(err_supplier_calls.get() + 1);
+                "request_id"
+            },
+            "tx-closure",
+        )
+        .with_category(|| {
+            err_supplier_calls.set(err_supplier_calls.get() + 1);
+            "auth"
+        })
+        .attach_payload(
+            || {
+                err_supplier_calls.set(err_supplier_calls.get() + 1);
+                "body"
+            },
+            AttachmentValue::from("ok"),
+            Some(|| {
+                err_supplier_calls.set(err_supplier_calls.get() + 1);
+                "text/plain"
+            }),
+        )
+        .expect_err("should fail");
+
+    assert_eq!(err_supplier_calls.get(), 4);
+    assert_eq!(err.category(), Some("auth"));
+    assert_eq!(
+        err.context()
+            .iter()
+            .next()
+            .map(|(key, value)| (key.as_ref().to_owned(), value.clone())),
+        Some((
+            "request_id".to_owned(),
+            ContextValue::String("tx-closure".into())
+        ))
+    );
+    assert!(matches!(
+        &err.attachments()[0],
+        Attachment::Payload {
+            name,
+            value: AttachmentValue::String(value),
+            media_type: Some(media_type),
+        } if name == "body"
+            && value == "ok"
+            && media_type == "text/plain"
+    ));
+}
+
+#[test]
 #[cfg(feature = "std")]
 fn global_context_injector_applies_to_new_reports() {
     let _guard = init_test();
