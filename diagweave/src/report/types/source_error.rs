@@ -147,6 +147,7 @@ impl DiagnosticBagExt {
     }
 
     /// Returns a mutable reference to the system context map, allocating if necessary.
+    #[cfg(feature = "std")]
     pub(crate) fn system_mut(&mut self) -> &mut ContextMap {
         &mut self.ensure_inner().system
     }
@@ -404,6 +405,7 @@ impl DiagnosticBag {
     }
 
     /// Returns a mutable reference to the system context map, allocating if necessary.
+    #[cfg(feature = "std")]
     pub(crate) fn system_mut(&mut self) -> &mut ContextMap {
         self.ensure_inner().ext.system_mut()
     }

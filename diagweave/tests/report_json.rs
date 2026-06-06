@@ -10,7 +10,7 @@ use diagweave::report::{DisplayCauseChain, SourceErrorChain};
 #[cfg(feature = "json")]
 use report_common::*;
 
-#[cfg(feature = "json")]
+#[cfg(all(feature = "json", feature = "trace"))]
 fn find_context_entry<'a>(
     parsed: &'a serde_json::Value,
     section: &str,
