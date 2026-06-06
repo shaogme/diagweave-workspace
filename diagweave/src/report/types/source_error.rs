@@ -86,13 +86,22 @@ impl DiagnosticBagExt {
         self.ensure_inner().stack_trace = Some(stack_trace);
     }
 
-    /// Inserts a system context key-value pair.
+    /// Inserts or replaces a system context key-value pair.
     pub fn insert_system(
         &mut self,
         key: impl Into<ref_str::StaticRefStr>,
         value: impl Into<ContextValue>,
     ) {
         self.ensure_inner().system.insert(key, value);
+    }
+
+    /// Inserts a system context key-value pair if the key is absent.
+    pub(crate) fn insert_system_if_absent(
+        &mut self,
+        key: impl Into<ref_str::StaticRefStr>,
+        value: impl Into<ContextValue>,
+    ) {
+        self.ensure_inner().system.insert_if_absent(key, value);
     }
 
     /// Sets the display causes.
@@ -242,7 +251,7 @@ impl DiagnosticBag {
         self.ensure_inner().ext.set_stack_trace(stack_trace);
     }
 
-    /// Inserts a context key-value pair.
+    /// Inserts or replaces a context key-value pair.
     pub fn insert_context(
         &mut self,
         key: impl Into<ref_str::StaticRefStr>,
@@ -251,13 +260,31 @@ impl DiagnosticBag {
         self.ensure_inner().context.insert(key, value);
     }
 
-    /// Inserts a system context key-value pair.
+    /// Inserts a context key-value pair if the key is absent.
+    pub(crate) fn insert_context_if_absent(
+        &mut self,
+        key: impl Into<ref_str::StaticRefStr>,
+        value: impl Into<ContextValue>,
+    ) {
+        self.ensure_inner().context.insert_if_absent(key, value);
+    }
+
+    /// Inserts or replaces a system context key-value pair.
     pub fn insert_system(
         &mut self,
         key: impl Into<ref_str::StaticRefStr>,
         value: impl Into<ContextValue>,
     ) {
         self.ensure_inner().ext.insert_system(key, value);
+    }
+
+    /// Inserts a system context key-value pair if the key is absent.
+    pub(crate) fn insert_system_if_absent(
+        &mut self,
+        key: impl Into<ref_str::StaticRefStr>,
+        value: impl Into<ContextValue>,
+    ) {
+        self.ensure_inner().ext.insert_system_if_absent(key, value);
     }
 
     /// Adds an attachment.
@@ -278,11 +305,6 @@ impl DiagnosticBag {
     /// Sets the diagnostic source errors.
     pub(crate) fn set_diag_src_errors(&mut self, errors: SourceErrorChain) {
         self.ensure_inner().ext.set_diag_src_errors(errors);
-    }
-
-    /// Returns a mutable reference to the context map, allocating if necessary.
-    pub(crate) fn context_mut(&mut self) -> &mut ContextMap {
-        &mut self.ensure_inner().context
     }
 
     /// Returns a mutable reference to the system context map, allocating if necessary.

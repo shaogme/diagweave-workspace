@@ -10,8 +10,8 @@ use core::fmt::Display;
 use ref_str::StaticRefStr;
 
 use super::types::{
-    Attachment, AttachmentValue, ContextMap, ContextValue, DisplayCauseChain, ErrorCode,
-    SourceErrorChain, StackTrace, append_source_chain,
+    Attachment, AttachmentValue, ContextValue, DisplayCauseChain, ErrorCode, SourceErrorChain,
+    StackTrace, append_source_chain,
 };
 use super::{Report, ReportMetadata, ReportOptions, SeverityState};
 
@@ -19,11 +19,12 @@ impl<E, State> Report<E, State>
 where
     State: SeverityState,
 {
-    /// Adds a business context key-value pair to the report.
+    /// Adds a business context key-value pair to the report if the key is absent.
     ///
     /// Business context provides additional information about the error's
     /// operational context, such as user IDs, request IDs, or other
-    /// domain-specific metadata.
+    /// domain-specific metadata. Existing values are preserved when the
+    /// same key is used more than once.
     ///
     /// # Example
     ///
@@ -44,14 +45,15 @@ where
         key: impl Into<StaticRefStr>,
         value: impl Into<ContextValue>,
     ) -> Self {
-        Report::<E, State>::diagnostics_mut(&mut self).insert_context(key, value);
+        Report::<E, State>::diagnostics_mut(&mut self).insert_context_if_absent(key, value);
         self
     }
 
-    /// Adds a system context key-value pair to the report.
+    /// Adds a system context key-value pair to the report if the key is absent.
     ///
     /// System context contains infrastructure-level information such as
-    /// hostname, service name, deployment environment, etc.
+    /// hostname, service name, deployment environment, etc. Existing values
+    /// are preserved when the same key is used more than once.
     ///
     /// # Example
     ///
@@ -72,63 +74,65 @@ where
         key: impl Into<StaticRefStr>,
         value: impl Into<ContextValue>,
     ) -> Self {
+        Report::<E, State>::diagnostics_mut(&mut self).insert_system_if_absent(key, value);
+        self
+    }
+
+    /// Sets a system context key-value pair for the report.
+    ///
+    /// System context contains infrastructure-level information such as
+    /// hostname, service name, deployment environment, etc. Existing values
+    /// for the same key are replaced.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use diagweave::prelude::Report;
+    /// use diagweave::Error;
+    ///
+    /// #[derive(Debug, Error)]
+    /// #[display("my error")]
+    /// struct MyError;
+    ///
+    /// let report = Report::new(MyError)
+    ///     .set_system("hostname", "prod-server-01")
+    ///     .set_system("service", "payment-service");
+    /// ```
+    pub fn set_system(
+        mut self,
+        key: impl Into<StaticRefStr>,
+        value: impl Into<ContextValue>,
+    ) -> Self {
         Report::<E, State>::diagnostics_mut(&mut self).insert_system(key, value);
         self
     }
 
-    /// Replaces the system context for the report.
+    /// Sets a business context key-value pair for the report.
     ///
-    /// This method completely replaces any existing system context with
-    /// the provided one. Use this when you have a pre-built ContextMap
-    /// that you want to use directly.
+    /// Business context provides additional information about the error's
+    /// operational context, such as user IDs, request IDs, or other
+    /// domain-specific metadata. Existing values for the same key are replaced.
     ///
     /// # Example
     ///
     /// ```rust
     /// use diagweave::prelude::Report;
-    /// use diagweave::report::ContextMap;
     /// use diagweave::Error;
     ///
     /// #[derive(Debug, Error)]
     /// #[display("my error")]
     /// struct MyError;
     ///
-    /// let mut system = ContextMap::new();
-    /// system.insert("hostname", "prod-server-01");
-    /// system.insert("service", "payment-service");
-    ///
-    /// let report = Report::new(MyError).set_system(system);
+    /// let report = Report::new(MyError)
+    ///     .set_ctx("user_id", "12345")
+    ///     .set_ctx("request_id", "abc-def-ghi");
     /// ```
-    pub fn set_system(mut self, system: ContextMap) -> Self {
-        *Report::<E, State>::diagnostics_mut(&mut self).system_mut() = system;
-        self
-    }
-
-    /// Replaces the business context for the report.
-    ///
-    /// This method completely replaces any existing business context with
-    /// the provided one. Use this when you have a pre-built ContextMap
-    /// that you want to use directly.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use diagweave::prelude::Report;
-    /// use diagweave::report::ContextMap;
-    /// use diagweave::Error;
-    ///
-    /// #[derive(Debug, Error)]
-    /// #[display("my error")]
-    /// struct MyError;
-    ///
-    /// let mut ctx = ContextMap::new();
-    /// ctx.insert("user_id", "12345");
-    /// ctx.insert("request_id", "abc-def-ghi");
-    ///
-    /// let report = Report::new(MyError).set_ctx(ctx);
-    /// ```
-    pub fn set_ctx(mut self, ctx: ContextMap) -> Self {
-        *Report::<E, State>::diagnostics_mut(&mut self).context_mut() = ctx;
+    pub fn set_ctx(
+        mut self,
+        key: impl Into<StaticRefStr>,
+        value: impl Into<ContextValue>,
+    ) -> Self {
+        Report::<E, State>::diagnostics_mut(&mut self).insert_context(key, value);
         self
     }
 

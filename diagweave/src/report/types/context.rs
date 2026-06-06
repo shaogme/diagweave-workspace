@@ -305,9 +305,21 @@ impl ContextMap {
         self.0.contains_key(key.into())
     }
 
-    /// Inserts a key-value pair into the context map.
+    /// Inserts or replaces a key-value pair in the context map.
     pub fn insert(&mut self, key: impl Into<StaticRefStr>, value: impl Into<ContextValue>) {
         self.0.insert(key.into(), value.into());
+    }
+
+    /// Inserts a key-value pair only if the key is absent.
+    pub(crate) fn insert_if_absent(
+        &mut self,
+        key: impl Into<StaticRefStr>,
+        value: impl Into<ContextValue>,
+    ) {
+        let key = key.into();
+        if !self.0.contains_key(&key) {
+            self.0.insert(key, value.into());
+        }
     }
 
     /// Returns an iterator over the key-value pairs in the context map.

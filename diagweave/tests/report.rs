@@ -58,6 +58,50 @@ fn metadata_and_attachments_are_recorded_and_formatted() {
 }
 
 #[test]
+fn with_context_methods_preserve_existing_keys() {
+    let _guard = init_test();
+
+    let report = Report::new(AuthError::InvalidToken)
+        .with_ctx("request_id", "first")
+        .with_ctx("request_id", "second")
+        .with_system("host", "web-1")
+        .with_system("host", "web-2");
+
+    assert_eq!(report.context().len(), 1);
+    assert_eq!(
+        report.context().iter().next().map(|(_, value)| value.clone()),
+        Some(ContextValue::String("first".into()))
+    );
+    assert_eq!(report.system().len(), 1);
+    assert_eq!(
+        report.system().iter().next().map(|(_, value)| value.clone()),
+        Some(ContextValue::String("web-1".into()))
+    );
+}
+
+#[test]
+fn set_context_methods_replace_existing_keys() {
+    let _guard = init_test();
+
+    let report = Report::new(AuthError::InvalidToken)
+        .with_ctx("request_id", "first")
+        .set_ctx("request_id", "second")
+        .with_system("host", "web-1")
+        .set_system("host", "web-2");
+
+    assert_eq!(report.context().len(), 1);
+    assert_eq!(
+        report.context().iter().next().map(|(_, value)| value.clone()),
+        Some(ContextValue::String("second".into()))
+    );
+    assert_eq!(report.system().len(), 1);
+    assert_eq!(
+        report.system().iter().next().map(|(_, value)| value.clone()),
+        Some(ContextValue::String("web-2".into()))
+    );
+}
+
+#[test]
 fn diagweave_wraps_previous_report_as_source() {
     let _guard = init_test();
 

@@ -211,15 +211,15 @@ let report3 = Report::new(error3).set_options(
 ### 链式配置方法
 
 **API 命名约定**：
-- `set_*` 方法总是替换已有值
-- `with_*` 方法仅在未设置时才设置值（条件/保留语义）
+- `set_*` 方法写入指定诊断项；若目标字段或 key 已存在则覆盖其值
+- `with_*` 方法仅在目标字段或 key 未设置时才设置值（条件/保留语义）
 
 | 方法 | 参数类型 | 说明 |
 | :--- | :--- | :--- |
-| `with_ctx` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | 添加业务上下文键值对 |
-| `set_ctx` | `(ContextMap)` | 替换业务上下文映射 |
-| `with_system` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | 添加系统上下文键值对 |
-| `set_system` | `(ContextMap)` | 替换系统上下文映射 |
+| `with_ctx` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | 添加业务上下文键值对；若 key 已存在则保留原值 |
+| `set_ctx` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | 设置业务上下文键值对；若 key 已存在则覆盖 |
+| `with_system` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | 添加系统上下文键值对；若 key 已存在则保留原值 |
+| `set_system` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | 设置系统上下文键值对；若 key 已存在则覆盖 |
 | `set_options` | `ReportOptions` | 替换当前报告的选项配置 |
 | `set_accumulate_src_chain` | `bool` | 快速设置 `map_err()` 是否累积原生 `source` 链 |
 | `attach_note` / `attach_printable` | `impl Display + Send + Sync + 'static` | 添加备注或解决建议 |

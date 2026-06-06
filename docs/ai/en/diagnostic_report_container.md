@@ -211,15 +211,15 @@ Used for automatic cross-layer context injection (e.g., RequestID, SessionID).
 ### Chained Configuration Methods
 
 **API Naming Convention**:
-- `set_*` methods always replace existing values
-- `with_*` methods only set values when not already set (conditional/preserving semantics)
+- `set_*` methods write the specified diagnostic item; existing fields or keys are overwritten
+- `with_*` methods only set values when the target field or key is not already set (conditional/preserving semantics)
 
 | Method | Parameter Type | Description |
 | :--- | :--- | :--- |
-| `with_ctx` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | Add business context key-value pairs |
-| `set_ctx` | `(ContextMap)` | Replace the business context map |
-| `with_system` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | Add a system context key-value pair |
-| `set_system` | `(ContextMap)` | Replace the system context map |
+| `with_ctx` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | Add a business context key-value pair; preserves the existing value when the key already exists |
+| `set_ctx` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | Set a business context key-value pair; overwrites the existing value when the key already exists |
+| `with_system` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | Add a system context key-value pair; preserves the existing value when the key already exists |
+| `set_system` | `(impl Into<StaticRefStr>, impl Into<ContextValue>)` | Set a system context key-value pair; overwrites the existing value when the key already exists |
 | `set_options` | `ReportOptions` | Replace the current report options |
 | `set_accumulate_src_chain` | `bool` | Quick toggle for `map_err()` origin `source` chain accumulation |
 | `attach_note` / `attach_printable` | `impl Display + Send + Sync + 'static` | Add remarks or resolution suggestions |

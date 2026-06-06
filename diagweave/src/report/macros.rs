@@ -2,20 +2,20 @@
 macro_rules! for_each_report_builder_method {
     ($callback:ident) => {
         $callback! {
-            /// Adds a business context key-value pair to the report.
+            /// Adds a business context key-value pair to the report if the key is absent.
             fn with_ctx(key: impl Into<crate::StaticRefStr>, value: impl Into<crate::report::ContextValue>) -> Self
         }
         $callback! {
-            /// Adds a system context key-value pair to the report.
+            /// Adds a system context key-value pair to the report if the key is absent.
             fn with_system(key: impl Into<crate::StaticRefStr>, value: impl Into<crate::report::ContextValue>) -> Self
         }
         $callback! {
-            /// Replaces the system context for the report.
-            fn set_system(system: crate::report::ContextMap) -> Self
+            /// Sets a system context key-value pair, replacing any existing value for the key.
+            fn set_system(key: impl Into<crate::StaticRefStr>, value: impl Into<crate::report::ContextValue>) -> Self
         }
         $callback! {
-            /// Replaces the business context for the report.
-            fn set_ctx(ctx: crate::report::ContextMap) -> Self
+            /// Sets a business context key-value pair, replacing any existing value for the key.
+            fn set_ctx(key: impl Into<crate::StaticRefStr>, value: impl Into<crate::report::ContextValue>) -> Self
         }
         $callback! {
             /// Attaches a printable note to the report.
