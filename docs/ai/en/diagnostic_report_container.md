@@ -214,7 +214,7 @@ Used for automatic cross-layer context injection (e.g., RequestID, SessionID).
 - `set_*` methods write the specified diagnostic item; existing fields or keys are overwritten
 - `with_*` methods only set values when the target field or key is not already set (conditional/preserving semantics)
 
-**`StaticRefStr` suppliers**: Any parameter typed as `impl Into<StaticRefStr>` can also receive a `FnOnce() -> R` closure, as long as `R` itself converts into `StaticRefStr`. The closure runs when the parameter is actually converted. When used through the `Result<T, E>` or `Result<T, Report<E>>` chained extensions, the `Ok` path does not invoke these suppliers. This only applies to `StaticRefStr` parameter positions; value parameters such as `ContextValue` and `AttachmentValue` still follow their own `Into` conversion rules.
+**Closure suppliers**: Any parameter typed as `impl Into<StaticRefStr>`, `impl Into<ContextValue>`, or `impl Into<AttachmentValue>` can also receive a `FnOnce() -> R` closure, as long as `R` itself converts into the corresponding target type. The closure runs when the parameter is actually converted. When used through the `Result<T, E>` or `Result<T, Report<E>>` chained extensions, the `Ok` path does not invoke these suppliers. Context value closures can return strings, numbers, booleans, or arrays; attachment value closures can return strings, numbers, booleans, bytes, objects, or `ContextValue`.
 
 | Method | Parameter Type | Description |
 | :--- | :--- | :--- |
@@ -287,11 +287,11 @@ let report = Report::new(MyError::Timeout)
     .with_category(|| "network")
     .with_ctx(
         || "request_id",
-        "req-123",
+        || "req-123",
     )
     .attach_note("please check the network connection")
     .with_retryable(true)
-    .attach_payload(|| "data", vec![1, 2, 3], Some(|| "application/octet-stream"));
+    .attach_payload(|| "data", || vec![1u8, 2, 3], Some(|| "application/octet-stream"));
 #[cfg(feature = "std")]
 let report = report.capture_stack_trace();
 ```

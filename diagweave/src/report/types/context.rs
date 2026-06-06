@@ -84,6 +84,18 @@ impl From<StaticRefStr> for ContextValue {
     }
 }
 
+impl<F, R> From<F> for ContextValue
+where
+    F: FnOnce() -> R,
+    Self: From<R>,
+{
+    /// Creates a context value from a closure that returns any type convertible into it.
+    #[inline]
+    fn from(f: F) -> Self {
+        Self::from(f())
+    }
+}
+
 impl From<bool> for ContextValue {
     fn from(value: bool) -> Self {
         Self::Bool(value)

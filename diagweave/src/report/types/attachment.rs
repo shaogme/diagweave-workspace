@@ -87,6 +87,18 @@ impl From<StaticRefStr> for AttachmentValue {
     }
 }
 
+impl<F, R> From<F> for AttachmentValue
+where
+    F: FnOnce() -> R,
+    Self: From<R>,
+{
+    /// Creates an attachment value from a closure that returns any type convertible into it.
+    #[inline]
+    fn from(f: F) -> Self {
+        Self::from(f())
+    }
+}
+
 impl From<bool> for AttachmentValue {
     fn from(value: bool) -> Self {
         Self::Bool(value)

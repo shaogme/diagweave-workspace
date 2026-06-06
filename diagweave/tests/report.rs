@@ -373,6 +373,124 @@ fn result_builder_static_ref_str_suppliers_are_err_path_lazy() {
 }
 
 #[test]
+fn report_builder_value_params_accept_fn_once_suppliers() {
+    let _guard = init_test();
+
+    let skipped_ctx_value_supplier = std::cell::Cell::new(0usize);
+
+    let report = Report::new(AuthError::InvalidToken)
+        .with_ctx("request_id", move || "first")
+        .with_ctx("request_id", || {
+            skipped_ctx_value_supplier.set(skipped_ctx_value_supplier.get() + 1);
+            "second"
+        })
+        .set_ctx("retry", || 3u64)
+        .with_system("healthy", || true)
+        .attach_payload("body", || "ok", Some("text/plain"))
+        .attach_payload("raw", || vec![1u8, 2, 3], None::<&str>);
+
+    assert_eq!(skipped_ctx_value_supplier.get(), 0);
+    assert_eq!(
+        report.context().iter().find_map(|(key, value)| {
+            (key.as_ref() == "request_id").then(|| value.clone())
+        }),
+        Some(ContextValue::String("first".into()))
+    );
+    assert_eq!(
+        report.context().iter().find_map(|(key, value)| {
+            (key.as_ref() == "retry").then(|| value.clone())
+        }),
+        Some(ContextValue::Unsigned(3))
+    );
+    assert_eq!(
+        report.system().iter().find_map(|(key, value)| {
+            (key.as_ref() == "healthy").then(|| value.clone())
+        }),
+        Some(ContextValue::Bool(true))
+    );
+    assert!(matches!(
+        &report.attachments()[0],
+        Attachment::Payload {
+            name,
+            value: AttachmentValue::String(value),
+            media_type: Some(media_type),
+        } if name == "body"
+            && value == "ok"
+            && media_type == "text/plain"
+    ));
+    assert!(matches!(
+        &report.attachments()[1],
+        Attachment::Payload {
+            name,
+            value: AttachmentValue::Bytes(bytes),
+            media_type: None,
+        } if name == "raw" && bytes == &vec![1u8, 2, 3]
+    ));
+}
+
+#[test]
+fn result_builder_value_suppliers_are_err_path_lazy() {
+    let _guard = init_test();
+
+    let ok_supplier_calls = std::cell::Cell::new(0usize);
+    let ok: Result<(), AuthError> = Ok(());
+    let ok = ok
+        .with_ctx("request_id", || {
+            ok_supplier_calls.set(ok_supplier_calls.get() + 1);
+            "ok"
+        })
+        .attach_payload(
+            "body",
+            || {
+                ok_supplier_calls.set(ok_supplier_calls.get() + 1);
+                vec![1u8, 2, 3]
+            },
+            Some("application/octet-stream"),
+        );
+
+    assert!(ok.is_ok());
+    assert_eq!(ok_supplier_calls.get(), 0);
+
+    let err_supplier_calls = std::cell::Cell::new(0usize);
+    let err = fail_auth()
+        .with_ctx("request_id", || {
+            err_supplier_calls.set(err_supplier_calls.get() + 1);
+            "tx-value-closure"
+        })
+        .attach_payload(
+            "body",
+            || {
+                err_supplier_calls.set(err_supplier_calls.get() + 1);
+                vec![1u8, 2, 3]
+            },
+            Some("application/octet-stream"),
+        )
+        .expect_err("should fail");
+
+    assert_eq!(err_supplier_calls.get(), 2);
+    assert_eq!(
+        err.context()
+            .iter()
+            .next()
+            .map(|(key, value)| (key.as_ref().to_owned(), value.clone())),
+        Some((
+            "request_id".to_owned(),
+            ContextValue::String("tx-value-closure".into())
+        ))
+    );
+    assert!(matches!(
+        &err.attachments()[0],
+        Attachment::Payload {
+            name,
+            value: AttachmentValue::Bytes(bytes),
+            media_type: Some(media_type),
+        } if name == "body"
+            && bytes == &vec![1u8, 2, 3]
+            && media_type == "application/octet-stream"
+    ));
+}
+
+#[test]
 #[cfg(feature = "std")]
 fn global_context_injector_applies_to_new_reports() {
     let _guard = init_test();
