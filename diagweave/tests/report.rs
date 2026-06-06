@@ -69,12 +69,20 @@ fn with_context_methods_preserve_existing_keys() {
 
     assert_eq!(report.context().len(), 1);
     assert_eq!(
-        report.context().iter().next().map(|(_, value)| value.clone()),
+        report
+            .context()
+            .iter()
+            .next()
+            .map(|(_, value)| value.clone()),
         Some(ContextValue::String("first".into()))
     );
     assert_eq!(report.system().len(), 1);
     assert_eq!(
-        report.system().iter().next().map(|(_, value)| value.clone()),
+        report
+            .system()
+            .iter()
+            .next()
+            .map(|(_, value)| value.clone()),
         Some(ContextValue::String("web-1".into()))
     );
 }
@@ -91,13 +99,73 @@ fn set_context_methods_replace_existing_keys() {
 
     assert_eq!(report.context().len(), 1);
     assert_eq!(
-        report.context().iter().next().map(|(_, value)| value.clone()),
+        report
+            .context()
+            .iter()
+            .next()
+            .map(|(_, value)| value.clone()),
         Some(ContextValue::String("second".into()))
     );
     assert_eq!(report.system().len(), 1);
     assert_eq!(
-        report.system().iter().next().map(|(_, value)| value.clone()),
+        report
+            .system()
+            .iter()
+            .next()
+            .map(|(_, value)| value.clone()),
         Some(ContextValue::String("web-2".into()))
+    );
+}
+
+#[test]
+fn repeated_context_methods_append_explicitly_and_set_replaces_all_values() {
+    let _guard = init_test();
+
+    let skipped_ctx_values = std::cell::Cell::new(0usize);
+    let skipped_system_values = std::cell::Cell::new(0usize);
+
+    let report = Report::new(AuthError::InvalidToken)
+        .with_ctx("tag", "first")
+        .with_ctx_values(
+            "tag",
+            std::iter::once(|| {
+                skipped_ctx_values.set(skipped_ctx_values.get() + 1);
+                "ignored"
+            }),
+        )
+        .push_ctx("tag", "second")
+        .append_ctx("tag", "third")
+        .set_ctx_values("retry", [1u64, 2u64])
+        .with_ctx_values("retry", [3u64])
+        .with_system("host", "web-1")
+        .with_system_values(
+            "host",
+            std::iter::once(|| {
+                skipped_system_values.set(skipped_system_values.get() + 1);
+                "ignored"
+            }),
+        )
+        .push_system("host", "web-2")
+        .append_system("host", "web-3")
+        .set_system("host", "web-final")
+        .set_ctx("tag", "final");
+
+    assert_eq!(skipped_ctx_values.get(), 0);
+    assert_eq!(skipped_system_values.get(), 0);
+    assert_eq!(report.context().len(), 3);
+    assert_eq!(report.context().key_len(), 2);
+    assert_eq!(
+        report.context().values("tag"),
+        Some(&[ContextValue::String("final".into())][..])
+    );
+    assert_eq!(
+        report.context().values("retry"),
+        Some(&[ContextValue::Unsigned(1), ContextValue::Unsigned(2),][..])
+    );
+    assert_eq!(report.system().len(), 1);
+    assert_eq!(
+        report.system().values("host"),
+        Some(&[ContextValue::String("web-final".into())][..])
     );
 }
 
@@ -271,10 +339,7 @@ fn report_builder_static_ref_str_params_accept_fn_once_suppliers() {
             .iter()
             .next()
             .map(|(key, value)| (key.as_ref().to_owned(), value.clone())),
-        Some((
-            "host".to_owned(),
-            ContextValue::String("web-2".into())
-        ))
+        Some(("host".to_owned(), ContextValue::String("web-2".into())))
     );
     assert_eq!(report.category(), Some("auth"));
     assert!(matches!(
@@ -391,21 +456,24 @@ fn report_builder_value_params_accept_fn_once_suppliers() {
 
     assert_eq!(skipped_ctx_value_supplier.get(), 0);
     assert_eq!(
-        report.context().iter().find_map(|(key, value)| {
-            (key.as_ref() == "request_id").then(|| value.clone())
-        }),
+        report
+            .context()
+            .iter()
+            .find_map(|(key, value)| { (key.as_ref() == "request_id").then(|| value.clone()) }),
         Some(ContextValue::String("first".into()))
     );
     assert_eq!(
-        report.context().iter().find_map(|(key, value)| {
-            (key.as_ref() == "retry").then(|| value.clone())
-        }),
+        report
+            .context()
+            .iter()
+            .find_map(|(key, value)| { (key.as_ref() == "retry").then(|| value.clone()) }),
         Some(ContextValue::Unsigned(3))
     );
     assert_eq!(
-        report.system().iter().find_map(|(key, value)| {
-            (key.as_ref() == "healthy").then(|| value.clone())
-        }),
+        report
+            .system()
+            .iter()
+            .find_map(|(key, value)| { (key.as_ref() == "healthy").then(|| value.clone()) }),
         Some(ContextValue::Bool(true))
     );
     assert!(matches!(

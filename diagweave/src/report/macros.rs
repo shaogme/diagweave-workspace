@@ -6,16 +6,60 @@ macro_rules! for_each_report_builder_method {
             fn with_ctx(key: impl Into<crate::StaticRefStr>, value: impl Into<crate::report::ContextValue>) -> Self
         }
         $callback! {
+            /// Adds business context values to the report if the key is absent.
+            fn with_ctx_values<I, V>(key: impl Into<crate::StaticRefStr>, values: I) -> Self
+            where
+                I: IntoIterator<Item = V>,
+                V: Into<crate::report::ContextValue>
+        }
+        $callback! {
+            /// Appends a business context key-value pair to the report.
+            fn push_ctx(key: impl Into<crate::StaticRefStr>, value: impl Into<crate::report::ContextValue>) -> Self
+        }
+        $callback! {
+            /// Appends a business context key-value pair to the report.
+            fn append_ctx(key: impl Into<crate::StaticRefStr>, value: impl Into<crate::report::ContextValue>) -> Self
+        }
+        $callback! {
             /// Adds a system context key-value pair to the report if the key is absent.
             fn with_system(key: impl Into<crate::StaticRefStr>, value: impl Into<crate::report::ContextValue>) -> Self
+        }
+        $callback! {
+            /// Adds system context values to the report if the key is absent.
+            fn with_system_values<I, V>(key: impl Into<crate::StaticRefStr>, values: I) -> Self
+            where
+                I: IntoIterator<Item = V>,
+                V: Into<crate::report::ContextValue>
+        }
+        $callback! {
+            /// Appends a system context key-value pair to the report.
+            fn push_system(key: impl Into<crate::StaticRefStr>, value: impl Into<crate::report::ContextValue>) -> Self
+        }
+        $callback! {
+            /// Appends a system context key-value pair to the report.
+            fn append_system(key: impl Into<crate::StaticRefStr>, value: impl Into<crate::report::ContextValue>) -> Self
         }
         $callback! {
             /// Sets a system context key-value pair, replacing any existing value for the key.
             fn set_system(key: impl Into<crate::StaticRefStr>, value: impl Into<crate::report::ContextValue>) -> Self
         }
         $callback! {
+            /// Sets system context values, replacing any existing values for the key.
+            fn set_system_values<I, V>(key: impl Into<crate::StaticRefStr>, values: I) -> Self
+            where
+                I: IntoIterator<Item = V>,
+                V: Into<crate::report::ContextValue>
+        }
+        $callback! {
             /// Sets a business context key-value pair, replacing any existing value for the key.
             fn set_ctx(key: impl Into<crate::StaticRefStr>, value: impl Into<crate::report::ContextValue>) -> Self
+        }
+        $callback! {
+            /// Sets business context values, replacing any existing values for the key.
+            fn set_ctx_values<I, V>(key: impl Into<crate::StaticRefStr>, values: I) -> Self
+            where
+                I: IntoIterator<Item = V>,
+                V: Into<crate::report::ContextValue>
         }
         $callback! {
             /// Attaches a printable note to the report.

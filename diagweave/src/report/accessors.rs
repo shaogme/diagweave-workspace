@@ -87,7 +87,7 @@ where
         Report::<E, State>::diagnostics(self).attachments()
     }
 
-    /// Returns context key-value pairs associated with the report.
+    /// Returns context key-value entries associated with the report.
     ///
     /// Returns a reference to an empty [`ContextMap`] if no context has been set.
     ///
@@ -110,7 +110,7 @@ where
         Report::<E, State>::diagnostics(self).context()
     }
 
-    /// Returns system context associated with the report.
+    /// Returns system context entries associated with the report.
     ///
     /// Returns a reference to an empty [`ContextMap`] if no system context has been set.
     ///

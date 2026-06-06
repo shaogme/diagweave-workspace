@@ -5,7 +5,7 @@ This document defines the machine-consumable OpenTelemetry envelope emitted by `
 - Schema version: `v0.1.0`
 - Draft: JSON Schema 2020-12
 - Canonical schema file: `diagweave/schemas/report-otel-v0.1.0.schema.json`
-- Related JSON schema: [`docs/report-json-schema-v0.1.0.md`](docs/report-json-schema-v0.1.0.md)
+- Related JSON schema: [`docs/report-json-schema-v0.2.0.md`](docs/report-json-schema-v0.2.0.md)
 
 ## Stable payload fields
 
@@ -72,6 +72,8 @@ Current exporters populate these keys:
 - `attachment.payload.{name}`
 - `attachment.payload.{name}.media_type`
 
+Context and system fields are emitted as OTEL attributes using their context key names. When a report carries repeated context or system keys, the exporter emits repeated `attributes[*].key` entries with the same key so the repeated values are preserved.
+
 When `OtelEnvelopeConfig::with_namespace(...)` is used, diagweave-owned keys such as `context`, `system`, `attachment`, and `diagnostic_bag` are emitted under that namespace, while OTEL semantic-convention keys like `exception.type` remain unchanged.
 
 Notes:
@@ -108,4 +110,4 @@ When `feature = "otel"` is enabled, `diagweave` exports:
 
 When `feature = "json"` is also enabled, these types additionally derive `serde::Serialize` / `serde::Deserialize`.
 
-See also the JSON report schema in [`docs/report-json-schema-v0.1.0.md`](docs/report-json-schema-v0.1.0.md).
+See also the JSON report schema in [`docs/report-json-schema-v0.2.0.md`](docs/report-json-schema-v0.2.0.md).

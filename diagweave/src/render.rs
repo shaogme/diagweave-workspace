@@ -58,13 +58,13 @@ where
 }
 
 #[cfg(feature = "json")]
-pub const REPORT_JSON_SCHEMA_VERSION: &str = "v0.1.0";
+pub const REPORT_JSON_SCHEMA_VERSION: &str = "v0.2.0";
 #[cfg(feature = "json")]
 pub const REPORT_JSON_SCHEMA_DRAFT: &str = "https://json-schema.org/draft/2020-12/schema";
 #[cfg(feature = "json")]
 /// Returns the JSON schema for rendered reports.
 pub fn report_json_schema() -> &'static str {
-    include_str!("../schemas/report-v0.1.0.schema.json")
+    include_str!("../schemas/report-v0.2.0.schema.json")
 }
 
 /// Options for rendering a diagnostic report.

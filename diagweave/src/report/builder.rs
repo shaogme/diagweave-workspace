@@ -49,6 +49,38 @@ where
         self
     }
 
+    /// Adds a business context key with multiple values if the key is absent.
+    ///
+    /// Existing values are preserved when the same key is already present.
+    pub fn with_ctx_values<I, V>(mut self, key: impl Into<StaticRefStr>, values: I) -> Self
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<ContextValue>,
+    {
+        Report::<E, State>::diagnostics_mut(&mut self).insert_context_values_if_absent(key, values);
+        self
+    }
+
+    /// Appends a business context value for the key.
+    ///
+    /// Unlike [`Report::with_ctx`], this method preserves existing values and adds
+    /// a new repeated entry for the key.
+    pub fn push_ctx(
+        mut self,
+        key: impl Into<StaticRefStr>,
+        value: impl Into<ContextValue>,
+    ) -> Self {
+        Report::<E, State>::diagnostics_mut(&mut self).push_context(key, value);
+        self
+    }
+
+    /// Appends a business context value for the key.
+    ///
+    /// This is an alias for [`Report::push_ctx`].
+    pub fn append_ctx(self, key: impl Into<StaticRefStr>, value: impl Into<ContextValue>) -> Self {
+        Report::<E, State>::push_ctx(self, key, value)
+    }
+
     /// Adds a system context key-value pair to the report if the key is absent.
     ///
     /// System context contains infrastructure-level information such as
@@ -76,6 +108,39 @@ where
     ) -> Self {
         Report::<E, State>::diagnostics_mut(&mut self).insert_system_if_absent(key, value);
         self
+    }
+
+    /// Adds a system context key with multiple values if the key is absent.
+    ///
+    /// Existing values are preserved when the same key is already present.
+    pub fn with_system_values<I, V>(mut self, key: impl Into<StaticRefStr>, values: I) -> Self
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<ContextValue>,
+    {
+        Report::<E, State>::diagnostics_mut(&mut self).insert_system_values_if_absent(key, values);
+        self
+    }
+
+    /// Appends a system context value for the key.
+    pub fn push_system(
+        mut self,
+        key: impl Into<StaticRefStr>,
+        value: impl Into<ContextValue>,
+    ) -> Self {
+        Report::<E, State>::diagnostics_mut(&mut self).push_system(key, value);
+        self
+    }
+
+    /// Appends a system context value for the key.
+    ///
+    /// This is an alias for [`Report::push_system`].
+    pub fn append_system(
+        self,
+        key: impl Into<StaticRefStr>,
+        value: impl Into<ContextValue>,
+    ) -> Self {
+        Report::<E, State>::push_system(self, key, value)
     }
 
     /// Sets a system context key-value pair for the report.
@@ -107,6 +172,16 @@ where
         self
     }
 
+    /// Sets all system context values for the key, replacing any existing values.
+    pub fn set_system_values<I, V>(mut self, key: impl Into<StaticRefStr>, values: I) -> Self
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<ContextValue>,
+    {
+        Report::<E, State>::diagnostics_mut(&mut self).insert_system_values(key, values);
+        self
+    }
+
     /// Sets a business context key-value pair for the report.
     ///
     /// Business context provides additional information about the error's
@@ -127,12 +202,18 @@ where
     ///     .set_ctx("user_id", "12345")
     ///     .set_ctx("request_id", "abc-def-ghi");
     /// ```
-    pub fn set_ctx(
-        mut self,
-        key: impl Into<StaticRefStr>,
-        value: impl Into<ContextValue>,
-    ) -> Self {
+    pub fn set_ctx(mut self, key: impl Into<StaticRefStr>, value: impl Into<ContextValue>) -> Self {
         Report::<E, State>::diagnostics_mut(&mut self).insert_context(key, value);
+        self
+    }
+
+    /// Sets all business context values for the key, replacing any existing values.
+    pub fn set_ctx_values<I, V>(mut self, key: impl Into<StaticRefStr>, values: I) -> Self
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<ContextValue>,
+    {
+        Report::<E, State>::diagnostics_mut(&mut self).insert_context_values(key, values);
         self
     }
 

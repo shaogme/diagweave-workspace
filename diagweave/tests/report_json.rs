@@ -11,6 +11,19 @@ use diagweave::report::{DisplayCauseChain, SourceErrorChain};
 use report_common::*;
 
 #[cfg(feature = "json")]
+fn find_context_entry<'a>(
+    parsed: &'a serde_json::Value,
+    section: &str,
+    key: &str,
+) -> Option<&'a serde_json::Value> {
+    parsed[section]["entries"]
+        .as_array()?
+        .iter()
+        .find(|entry| entry["key"].as_str() == Some(key))
+        .map(|entry| &entry["value"])
+}
+
+#[cfg(feature = "json")]
 #[test]
 fn render_format_supports_compact_pretty_and_json() {
     // Use a simple report without map_err to test the case where origin_source_errors is absent
@@ -42,7 +55,7 @@ fn render_format_supports_compact_pretty_and_json() {
             .render(Json::new(ReportRenderOptions::default()))
             .to_string();
         assert!(json.contains("\"schema_version\""));
-        assert!(json.contains("\"v0.1.0\""));
+        assert!(json.contains(REPORT_JSON_SCHEMA_VERSION));
         assert!(json.contains("\"error\""));
         assert!(json.contains("\"metadata\""));
         assert!(json.contains("\"diagnostic_bag\""));
@@ -126,8 +139,44 @@ fn json_document_carries_metadata_and_structured_attachments() {
     );
     #[cfg(feature = "trace")]
     assert!(parsed["trace"].is_object());
-    assert_eq!(parsed["context"].as_object().map(|a| a.len()), Some(1));
+    assert_eq!(
+        parsed["context"]["entries"].as_array().map(|a| a.len()),
+        Some(1)
+    );
     assert_eq!(parsed["attachments"].as_array().map(|a| a.len()), Some(2));
+}
+
+#[cfg(feature = "json")]
+#[test]
+fn json_context_entries_preserve_repeated_keys() {
+    let _guard = init_test();
+
+    let report = Report::new(ApiError::Unauthorized)
+        .push_ctx("tag", "auth")
+        .append_ctx("tag", "retry")
+        .set_system_values("host", ["web-1", "web-2"]);
+
+    let json = report.render(Json::default()).to_string();
+    let parsed: serde_json::Value = serde_json::from_str(&json).expect("json schema shape");
+    let context_entries = parsed["context"]["entries"]
+        .as_array()
+        .expect("context entries should be array");
+    let tag_values: Vec<_> = context_entries
+        .iter()
+        .filter(|entry| entry["key"].as_str() == Some("tag"))
+        .map(|entry| entry["value"]["value"].as_str())
+        .collect();
+    assert_eq!(tag_values, vec![Some("auth"), Some("retry")]);
+
+    let system_entries = parsed["system"]["entries"]
+        .as_array()
+        .expect("system entries should be array");
+    let host_values: Vec<_> = system_entries
+        .iter()
+        .filter(|entry| entry["key"].as_str() == Some("host"))
+        .map(|entry| entry["value"]["value"].as_str())
+        .collect();
+    assert_eq!(host_values, vec![Some("web-1"), Some("web-2")]);
 }
 
 #[cfg(feature = "json")]
@@ -491,7 +540,8 @@ fn json_redacted_values_omit_missing_fields() {
     let json = report.render(Json::default()).to_string();
     let parsed: serde_json::Value = serde_json::from_str(&json).expect("json schema shape");
 
-    let ctx_redacted = &parsed["context"]["secret"];
+    let ctx_redacted =
+        find_context_entry(&parsed, "context", "secret").expect("secret context should exist");
     assert_eq!(ctx_redacted["kind"].as_str(), Some("redacted"));
     assert!(ctx_redacted["value"].get("kind").is_none());
     assert_eq!(ctx_redacted["value"]["reason"].as_str(), Some("pii"));

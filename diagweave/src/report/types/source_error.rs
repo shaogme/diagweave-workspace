@@ -95,6 +95,24 @@ impl DiagnosticBagExt {
         self.ensure_inner().system.insert(key, value);
     }
 
+    /// Inserts or replaces all values for a system context key.
+    pub fn insert_system_values<I, V>(&mut self, key: impl Into<ref_str::StaticRefStr>, values: I)
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<ContextValue>,
+    {
+        self.ensure_inner().system.insert_values(key, values);
+    }
+
+    /// Appends a system context key-value pair.
+    pub fn push_system(
+        &mut self,
+        key: impl Into<ref_str::StaticRefStr>,
+        value: impl Into<ContextValue>,
+    ) {
+        self.ensure_inner().system.push(key, value);
+    }
+
     /// Inserts a system context key-value pair if the key is absent.
     pub(crate) fn insert_system_if_absent(
         &mut self,
@@ -102,6 +120,20 @@ impl DiagnosticBagExt {
         value: impl Into<ContextValue>,
     ) {
         self.ensure_inner().system.insert_if_absent(key, value);
+    }
+
+    /// Inserts all values for a system context key if the key is absent.
+    pub(crate) fn insert_system_values_if_absent<I, V>(
+        &mut self,
+        key: impl Into<ref_str::StaticRefStr>,
+        values: I,
+    ) where
+        I: IntoIterator<Item = V>,
+        V: Into<ContextValue>,
+    {
+        self.ensure_inner()
+            .system
+            .insert_values_if_absent(key, values);
     }
 
     /// Sets the display causes.
@@ -260,6 +292,24 @@ impl DiagnosticBag {
         self.ensure_inner().context.insert(key, value);
     }
 
+    /// Inserts or replaces all values for a context key.
+    pub fn insert_context_values<I, V>(&mut self, key: impl Into<ref_str::StaticRefStr>, values: I)
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<ContextValue>,
+    {
+        self.ensure_inner().context.insert_values(key, values);
+    }
+
+    /// Appends a context key-value pair.
+    pub fn push_context(
+        &mut self,
+        key: impl Into<ref_str::StaticRefStr>,
+        value: impl Into<ContextValue>,
+    ) {
+        self.ensure_inner().context.push(key, value);
+    }
+
     /// Inserts a context key-value pair if the key is absent.
     pub(crate) fn insert_context_if_absent(
         &mut self,
@@ -267,6 +317,20 @@ impl DiagnosticBag {
         value: impl Into<ContextValue>,
     ) {
         self.ensure_inner().context.insert_if_absent(key, value);
+    }
+
+    /// Inserts all values for a context key if the key is absent.
+    pub(crate) fn insert_context_values_if_absent<I, V>(
+        &mut self,
+        key: impl Into<ref_str::StaticRefStr>,
+        values: I,
+    ) where
+        I: IntoIterator<Item = V>,
+        V: Into<ContextValue>,
+    {
+        self.ensure_inner()
+            .context
+            .insert_values_if_absent(key, values);
     }
 
     /// Inserts or replaces a system context key-value pair.
@@ -278,6 +342,24 @@ impl DiagnosticBag {
         self.ensure_inner().ext.insert_system(key, value);
     }
 
+    /// Inserts or replaces all values for a system context key.
+    pub fn insert_system_values<I, V>(&mut self, key: impl Into<ref_str::StaticRefStr>, values: I)
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<ContextValue>,
+    {
+        self.ensure_inner().ext.insert_system_values(key, values);
+    }
+
+    /// Appends a system context key-value pair.
+    pub fn push_system(
+        &mut self,
+        key: impl Into<ref_str::StaticRefStr>,
+        value: impl Into<ContextValue>,
+    ) {
+        self.ensure_inner().ext.push_system(key, value);
+    }
+
     /// Inserts a system context key-value pair if the key is absent.
     pub(crate) fn insert_system_if_absent(
         &mut self,
@@ -285,6 +367,20 @@ impl DiagnosticBag {
         value: impl Into<ContextValue>,
     ) {
         self.ensure_inner().ext.insert_system_if_absent(key, value);
+    }
+
+    /// Inserts all values for a system context key if the key is absent.
+    pub(crate) fn insert_system_values_if_absent<I, V>(
+        &mut self,
+        key: impl Into<ref_str::StaticRefStr>,
+        values: I,
+    ) where
+        I: IntoIterator<Item = V>,
+        V: Into<ContextValue>,
+    {
+        self.ensure_inner()
+            .ext
+            .insert_system_values_if_absent(key, values);
     }
 
     /// Adds an attachment.

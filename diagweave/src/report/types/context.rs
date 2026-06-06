@@ -293,8 +293,32 @@ impl From<&ContextValue> for AttachmentValue {
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
-#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
-pub struct ContextMap(FastMap<StaticRefStr, ContextValue>);
+pub struct ContextMap(FastMap<StaticRefStr, Vec<ContextValue>>);
+
+/// Iterator over flattened context key-value entries.
+pub struct ContextMapIter<'a> {
+    outer: <&'a FastMap<StaticRefStr, Vec<ContextValue>> as IntoIterator>::IntoIter,
+    current_key: Option<&'a StaticRefStr>,
+    current_values: Option<core::slice::Iter<'a, ContextValue>>,
+}
+
+impl<'a> Iterator for ContextMapIter<'a> {
+    type Item = (&'a StaticRefStr, &'a ContextValue);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let (Some(key), Some(values)) = (self.current_key, self.current_values.as_mut()) {
+                if let Some(value) = values.next() {
+                    return Some((key, value));
+                }
+            }
+
+            let (key, values) = self.outer.next()?;
+            self.current_key = Some(key);
+            self.current_values = Some(values.iter());
+        }
+    }
+}
 
 impl ContextMap {
     /// Creates an empty context map.
@@ -307,8 +331,13 @@ impl ContextMap {
         self.0.is_empty()
     }
 
-    /// Returns the number of entries in the context map.
+    /// Returns the number of flattened key-value entries in the context map.
     pub fn len(&self) -> usize {
+        self.0.iter().map(|(_, values)| values.len()).sum()
+    }
+
+    /// Returns the number of unique keys in the context map.
+    pub fn key_len(&self) -> usize {
         self.0.len()
     }
 
@@ -317,9 +346,44 @@ impl ContextMap {
         self.0.contains_key(key.into())
     }
 
-    /// Inserts or replaces a key-value pair in the context map.
+    /// Returns all values associated with the specified key.
+    pub fn values(&self, key: &str) -> Option<&[ContextValue]> {
+        self.0.get(key).map(Vec::as_slice)
+    }
+
+    /// Returns the first value associated with the specified key.
+    pub fn get(&self, key: &str) -> Option<&ContextValue> {
+        self.values(key).and_then(|values| values.first())
+    }
+
+    /// Inserts or replaces a key with a single-value list.
     pub fn insert(&mut self, key: impl Into<StaticRefStr>, value: impl Into<ContextValue>) {
-        self.0.insert(key.into(), value.into());
+        self.0.insert(key.into(), Vec::from([value.into()]));
+    }
+
+    /// Inserts or replaces all values for a key.
+    pub fn insert_values<I, V>(&mut self, key: impl Into<StaticRefStr>, values: I)
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<ContextValue>,
+    {
+        let key = key.into();
+        let values: Vec<ContextValue> = values.into_iter().map(Into::into).collect();
+        if values.is_empty() {
+            self.0.remove(key.as_ref());
+        } else {
+            self.0.insert(key, values);
+        }
+    }
+
+    /// Appends a key-value pair, preserving existing values for the key.
+    pub fn push(&mut self, key: impl Into<StaticRefStr>, value: impl Into<ContextValue>) {
+        let key = key.into();
+        if let Some(values) = self.0.get_mut(&key) {
+            values.push(value.into());
+        } else {
+            self.0.insert(key, Vec::from([value.into()]));
+        }
     }
 
     /// Inserts a key-value pair only if the key is absent.
@@ -330,18 +394,38 @@ impl ContextMap {
     ) {
         let key = key.into();
         if !self.0.contains_key(&key) {
-            self.0.insert(key, value.into());
+            self.0.insert(key, Vec::from([value.into()]));
         }
     }
 
-    /// Returns an iterator over the key-value pairs in the context map.
-    pub fn iter(&self) -> impl Iterator<Item = (&StaticRefStr, &ContextValue)> {
-        self.0.iter()
+    /// Inserts all values for a key only if the key is absent.
+    pub(crate) fn insert_values_if_absent<I, V>(&mut self, key: impl Into<StaticRefStr>, values: I)
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<ContextValue>,
+    {
+        let key = key.into();
+        if !self.0.contains_key(&key) {
+            self.insert_values(key, values);
+        }
     }
 
-    /// Returns a vector of key-value pairs sorted by key.
+    /// Returns an iterator over flattened key-value pairs in the context map.
+    pub fn iter(&self) -> ContextMapIter<'_> {
+        ContextMapIter {
+            outer: (&self.0).into_iter(),
+            current_key: None,
+            current_values: None,
+        }
+    }
+
+    /// Returns flattened key-value pairs sorted by key.
     pub fn sorted_entries(&self) -> Vec<(&StaticRefStr, &ContextValue)> {
-        self.0.sorted_entries()
+        let mut entries = Vec::new();
+        for (key, values) in self.0.sorted_entries() {
+            entries.extend(values.iter().map(|value| (key, value)));
+        }
+        entries
     }
 }
 
@@ -373,10 +457,10 @@ impl ContextMap {
 
 impl<'a> IntoIterator for &'a ContextMap {
     type Item = (&'a StaticRefStr, &'a ContextValue);
-    type IntoIter = <&'a FastMap<StaticRefStr, ContextValue> as IntoIterator>::IntoIter;
+    type IntoIter = ContextMapIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        (&self.0).into_iter()
+        self.iter()
     }
 }
 
@@ -396,6 +480,39 @@ pub struct JsonContextEntry {
     pub key: StaticRefStr,
     /// The context value.
     pub value: ContextValue,
+}
+
+#[cfg(feature = "json")]
+impl serde::Serialize for ContextMap {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let entries: Vec<JsonContextEntry> = self
+            .sorted_entries()
+            .into_iter()
+            .map(|(key, value)| JsonContextEntry {
+                key: key.clone(),
+                value: value.clone(),
+            })
+            .collect();
+        serde::Serialize::serialize(&JsonContext { entries }, serializer)
+    }
+}
+
+#[cfg(feature = "json")]
+impl<'de> serde::Deserialize<'de> for ContextMap {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let context = <JsonContext as serde::Deserialize>::deserialize(deserializer)?;
+        let mut map = ContextMap::new();
+        for entry in context.entries {
+            map.push(entry.key, entry.value);
+        }
+        Ok(map)
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

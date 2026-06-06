@@ -23,11 +23,9 @@ where
     let mut first = true;
     f.write_char('{')?;
     let context = build_json_context(report.context());
-    for entry in context.entries {
-        write_object_field(f, pretty, depth, &mut first, entry.key.as_ref(), |f| {
-            write_context_value(f, pretty, depth + 1, &entry.value)
-        })?;
-    }
+    write_object_field(f, pretty, depth, &mut first, "entries", |f| {
+        write_context_entries_array(f, pretty, depth + 1, &context.entries)
+    })?;
     close_object(f, pretty, depth, first)
 }
 
@@ -44,11 +42,41 @@ where
     let mut first = true;
     f.write_char('{')?;
     let system = build_json_system(report.system());
-    for entry in &system.entries {
-        write_object_field(f, pretty, depth, &mut first, entry.key.as_ref(), |f| {
-            write_context_value(f, pretty, depth + 1, &entry.value)
-        })?;
+    write_object_field(f, pretty, depth, &mut first, "entries", |f| {
+        write_context_entries_array(f, pretty, depth + 1, &system.entries)
+    })?;
+    close_object(f, pretty, depth, first)
+}
+
+fn write_context_entries_array(
+    f: &mut Formatter<'_>,
+    pretty: bool,
+    depth: usize,
+    entries: &[JsonContextEntry],
+) -> fmt::Result {
+    let mut first = true;
+    f.write_char('[')?;
+    for entry in entries {
+        write_array_item_prefix(f, pretty, depth, &mut first)?;
+        write_context_entry(f, pretty, depth + 1, entry)?;
     }
+    close_array(f, pretty, depth, first)
+}
+
+fn write_context_entry(
+    f: &mut Formatter<'_>,
+    pretty: bool,
+    depth: usize,
+    entry: &JsonContextEntry,
+) -> fmt::Result {
+    let mut first = true;
+    f.write_char('{')?;
+    write_object_field(f, pretty, depth, &mut first, "key", |f| {
+        write_json_string(f, entry.key.as_ref())
+    })?;
+    write_object_field(f, pretty, depth, &mut first, "value", |f| {
+        write_context_value(f, pretty, depth + 1, &entry.value)
+    })?;
     close_object(f, pretty, depth, first)
 }
 

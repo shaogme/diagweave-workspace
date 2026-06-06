@@ -204,7 +204,7 @@ where
         }
         if !global.context.is_empty() {
             for (key, value) in &global.context {
-                self.data.bag.insert_context(key.clone(), value.clone());
+                self.data.bag.push_context(key.clone(), value.clone());
             }
         }
 

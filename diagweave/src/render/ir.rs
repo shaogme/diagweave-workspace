@@ -276,16 +276,9 @@ pub(crate) fn build_ctx_and_attachments(
     system: &ContextMap,
     attachments: &[Attachment],
 ) -> (AttachmentValue, AttachmentValue, Vec<AttachmentValue>) {
-    let mut context_map = FastMap::new();
-    let mut system_map = FastMap::new();
+    let context_entries = build_context_entries_value(context);
+    let system_entries = build_context_entries_value(system);
     let mut attachment_items = Vec::new();
-
-    for (key, value) in context {
-        context_map.insert(key.clone(), AttachmentValue::from(value));
-    }
-    for (key, value) in system {
-        system_map.insert(key.clone(), AttachmentValue::from(value));
-    }
 
     for attachment in attachments {
         match attachment {
@@ -319,10 +312,24 @@ pub(crate) fn build_ctx_and_attachments(
     }
 
     (
-        AttachmentValue::Object(context_map),
-        AttachmentValue::Object(system_map),
+        AttachmentValue::Array(context_entries),
+        AttachmentValue::Array(system_entries),
         attachment_items,
     )
+}
+
+#[cfg(feature = "trace")]
+fn build_context_entries_value(context: &ContextMap) -> Vec<AttachmentValue> {
+    context
+        .sorted_entries()
+        .into_iter()
+        .map(|(key, value)| {
+            let mut entry = FastMap::new();
+            entry.insert("key".into(), AttachmentValue::String(key.clone()));
+            entry.insert("value".into(), AttachmentValue::from(value));
+            AttachmentValue::Object(entry)
+        })
+        .collect()
 }
 
 #[cfg(feature = "trace")]
