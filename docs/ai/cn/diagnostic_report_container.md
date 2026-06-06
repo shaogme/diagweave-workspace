@@ -186,6 +186,7 @@ let report3 = Report::new(error3).set_options(
 ### 原因链语义
 
 - `with_display_cause` / `with_display_causes` 接收 `impl Display + Send + Sync + 'static`，并追加到展示原因字符串链（用于渲染与 IR）。
+- `with_display_cause_lazy` / `with_display_causes_lazy` 接收 `FnOnce` 供应器，仅在实际构建展示原因时执行闭包。
 - `with_diag_src_err` 用于显式追加错误对象到**诊断补充链**，参数要求 `impl Error + Send + Sync + 'static`。
 - 原生传播链由 `map_err()` 与 `Error::source()` 维护；是否把旧内层错误继续串接到新错误的 `source` 链，由 `ReportOptions` 决定。
 
@@ -214,7 +215,7 @@ let report3 = Report::new(error3).set_options(
 - `set_*` 方法写入指定诊断项；若目标字段或 key 已存在则覆盖其值
 - `with_*` 方法仅在目标字段或 key 未设置时才设置值（条件/保留语义）
 
-**闭包供应器**：参数类型为 `impl Into<StaticRefStr>`、`impl Into<ContextValue>` 或 `impl Into<AttachmentValue>` 的位置都可以直接传入 `FnOnce() -> R` 闭包，只要 `R` 本身可转换为对应目标类型。闭包会在参数实际转换时执行；通过 `Result<T, E>` 或 `Result<T, Report<E>>` 的链式扩展调用时，`Ok` 路径不会执行这些供应器。上下文值闭包可以返回字符串、数字、布尔值或数组；附件值闭包可以返回字符串、数字、布尔值、字节数组、对象，或 `ContextValue`。
+**闭包供应器**：参数类型为 `impl Into<StaticRefStr>`、`impl Into<ContextValue>` 或 `impl Into<AttachmentValue>` 的位置都可以直接传入 `FnOnce() -> R` 闭包，只要 `R` 本身可转换为对应目标类型。闭包会在参数实际转换时执行；通过 `Result<T, E>` 或 `Result<T, Report<E>>` 的链式扩展调用时，`Ok` 路径不会执行这些供应器。上下文值闭包可以返回字符串、数字、布尔值或数组；附件值闭包可以返回字符串、数字、布尔值、字节数组、对象，或 `ContextValue`。对于 `impl Display + Send + Sync + 'static` 参数（如 note 和 display causes），请使用显式 lazy 变体：`attach_note_lazy`、`attach_printable_lazy`、`with_display_cause_lazy`、`with_display_causes_lazy`。
 
 | 方法 | 参数类型 | 说明 |
 | :--- | :--- | :--- |
@@ -225,6 +226,7 @@ let report3 = Report::new(error3).set_options(
 | `set_options` | `ReportOptions` | 替换当前报告的选项配置 |
 | `set_accumulate_src_chain` | `bool` | 快速设置 `map_err()` 是否累积原生 `source` 链 |
 | `attach_note` / `attach_printable` | `impl Display + Send + Sync + 'static` | 添加备注或解决建议 |
+| `attach_note_lazy` / `attach_printable_lazy` | `FnOnce() -> impl Display + Send + Sync + 'static` | 延迟构造备注文本；通过 `Result` 链式调用时仅在 `Err` 路径执行 |
 | `attach_payload` / `attach_payload` | `(impl Into<StaticRefStr>, Value, Option<impl Into<StaticRefStr>>)` | 附加命名负载 (支持媒体类型) |
 | `set_severity` | `Severity` | 设置严重程度 (Debug, Info, Warn, Error, Fatal)，覆盖已有值 |
 | `with_severity` | `Severity` | 设置严重程度，仅当未设置时生效 (保留底层诊断信息) |
@@ -236,6 +238,8 @@ let report3 = Report::new(error3).set_options(
 | `with_retryable` | `bool` | 标记是否建议重试，仅当未设置时生效 (保留底层诊断信息) |
 | `with_display_cause` | `impl Display + Send + Sync + 'static` | 添加单个展示原因字符串 |
 | `with_display_causes` | `impl IntoIterator<Item = impl Display + Send + Sync + 'static>` | 批量添加展示原因字符串 |
+| `with_display_cause_lazy` | `FnOnce() -> impl Display + Send + Sync + 'static` | 延迟构造单个展示原因；通过 `Result` 链式调用时仅在 `Err` 路径执行 |
+| `with_display_causes_lazy` | `FnOnce() -> impl IntoIterator<Item = impl Display + Send + Sync + 'static>` | 延迟构造展示原因列表；通过 `Result` 链式调用时仅在 `Err` 路径执行 |
 | `with_diag_src_err` | `impl Error + Send + Sync + 'static` | 添加单个显式错误源对象 |
 | `set_stack_trace` | `StackTrace` | 手动关联已存在的堆栈信息，覆盖已有值 |
 | `with_stack_trace` | `StackTrace` | 手动关联已存在的堆栈信息，仅当未设置时生效 |

@@ -242,6 +242,18 @@ where
         self
     }
 
+    /// Attaches a printable note to the report using a lazy message supplier.
+    ///
+    /// This is useful when building the message is relatively expensive and
+    /// should only happen on the error path when chaining from a `Result`.
+    pub fn attach_printable_lazy<F, M>(self, message: F) -> Self
+    where
+        F: FnOnce() -> M,
+        M: Display + Send + Sync + 'static,
+    {
+        Report::<E, State>::attach_printable(self, message())
+    }
+
     /// Attaches a payload with an optional media type to the report.
     ///
     /// Payloads are structured data attachments that can contain arbitrary
@@ -278,6 +290,17 @@ where
     /// This is a convenience alias for [`Report::attach_printable`].
     pub fn attach_note(self, message: impl Display + Send + Sync + 'static) -> Self {
         Report::<E, State>::attach_printable(self, message)
+    }
+
+    /// Adds a note to the report using a lazy message supplier.
+    ///
+    /// This is the lazy counterpart to [`Report::attach_note`].
+    pub fn attach_note_lazy<F, M>(self, message: F) -> Self
+    where
+        F: FnOnce() -> M,
+        M: Display + Send + Sync + 'static,
+    {
+        Report::<E, State>::attach_printable_lazy(self, message)
     }
 
     /// Sets the metadata for the report.
@@ -593,6 +616,18 @@ where
         self
     }
 
+    /// Adds a display cause to the report using a lazy cause supplier.
+    ///
+    /// This is useful when cause formatting is expensive and should only run
+    /// if the report is actually materialized on the error path.
+    pub fn with_display_cause_lazy<F, C>(self, cause: F) -> Self
+    where
+        F: FnOnce() -> C,
+        C: Display + Send + Sync + 'static,
+    {
+        Report::<E, State>::with_display_cause(self, cause())
+    }
+
     /// Replaces the display-cause chain for the report.
     ///
     /// This method completely replaces any existing display causes with
@@ -638,6 +673,18 @@ where
                     .map(|cause| Arc::new(cause) as Arc<dyn Display + Send + Sync + 'static>),
             );
         self
+    }
+
+    /// Adds multiple display causes to the report using a lazy cause-list supplier.
+    ///
+    /// This is the lazy counterpart to [`Report::with_display_causes`].
+    pub fn with_display_causes_lazy<F, I, C>(self, causes: F) -> Self
+    where
+        F: FnOnce() -> I,
+        I: IntoIterator<Item = C>,
+        C: Display + Send + Sync + 'static,
+    {
+        Report::<E, State>::with_display_causes(self, causes())
     }
 
     /// Adds an error source to the report's diagnostic source chain.

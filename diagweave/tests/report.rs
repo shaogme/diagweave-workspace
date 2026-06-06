@@ -497,6 +497,53 @@ fn report_builder_value_params_accept_fn_once_suppliers() {
 }
 
 #[test]
+fn report_builder_display_lazy_methods_accept_fn_once_suppliers() {
+    let _guard = init_test();
+
+    let direct_calls = std::cell::Cell::new(0usize);
+
+    let report = Report::new(AuthError::InvalidToken)
+        .attach_printable_lazy(|| {
+            direct_calls.set(direct_calls.get() + 1);
+            "refresh session"
+        })
+        .attach_note_lazy(|| {
+            direct_calls.set(direct_calls.get() + 1);
+            "token stale"
+        })
+        .with_display_cause_lazy(|| {
+            direct_calls.set(direct_calls.get() + 1);
+            "primary cause"
+        })
+        .with_display_causes_lazy(|| {
+            direct_calls.set(direct_calls.get() + 1);
+            ["secondary cause", "fallback exhausted"]
+        });
+
+    assert_eq!(direct_calls.get(), 4);
+    assert_eq!(
+        report
+            .attachments()
+            .iter()
+            .filter_map(|attachment| attachment.as_note())
+            .collect::<Vec<_>>(),
+        vec!["refresh session".to_owned(), "token stale".to_owned()]
+    );
+    assert_eq!(
+        report
+            .display_causes()
+            .iter()
+            .map(|cause| cause.to_string())
+            .collect::<Vec<_>>(),
+        vec![
+            "primary cause".to_owned(),
+            "secondary cause".to_owned(),
+            "fallback exhausted".to_owned(),
+        ]
+    );
+}
+
+#[test]
 fn result_builder_value_suppliers_are_err_path_lazy() {
     let _guard = init_test();
 
@@ -556,6 +603,127 @@ fn result_builder_value_suppliers_are_err_path_lazy() {
             && bytes == &vec![1u8, 2, 3]
             && media_type == "application/octet-stream"
     ));
+}
+
+#[test]
+fn diagnostic_result_display_lazy_methods_are_err_path_lazy() {
+    let _guard = init_test();
+
+    let ok_supplier_calls = std::cell::Cell::new(0usize);
+    let ok: Result<(), AuthError> = Ok(());
+    let ok = ok
+        .attach_note_lazy(|| {
+            ok_supplier_calls.set(ok_supplier_calls.get() + 1);
+            "ok note"
+        })
+        .attach_printable_lazy(|| {
+            ok_supplier_calls.set(ok_supplier_calls.get() + 1);
+            "ok printable"
+        })
+        .with_display_cause_lazy(|| {
+            ok_supplier_calls.set(ok_supplier_calls.get() + 1);
+            "ok cause"
+        })
+        .with_display_causes_lazy(|| {
+            ok_supplier_calls.set(ok_supplier_calls.get() + 1);
+            ["ok cause 2", "ok cause 3"]
+        });
+
+    assert!(ok.is_ok());
+    assert_eq!(ok_supplier_calls.get(), 0);
+
+    let err_supplier_calls = std::cell::Cell::new(0usize);
+    let err = fail_auth()
+        .attach_note_lazy(|| {
+            err_supplier_calls.set(err_supplier_calls.get() + 1);
+            "token stale"
+        })
+        .attach_printable_lazy(|| {
+            err_supplier_calls.set(err_supplier_calls.get() + 1);
+            "reauth required"
+        })
+        .with_display_cause_lazy(|| {
+            err_supplier_calls.set(err_supplier_calls.get() + 1);
+            "first cause"
+        })
+        .with_display_causes_lazy(|| {
+            err_supplier_calls.set(err_supplier_calls.get() + 1);
+            ["second cause", "third cause"]
+        })
+        .expect_err("should fail");
+
+    assert_eq!(err_supplier_calls.get(), 4);
+    assert_eq!(
+        err.attachments()
+            .iter()
+            .filter_map(|attachment| attachment.as_note())
+            .collect::<Vec<_>>(),
+        vec!["token stale".to_owned(), "reauth required".to_owned()]
+    );
+    assert_eq!(
+        err.display_causes()
+            .iter()
+            .map(|cause| cause.to_string())
+            .collect::<Vec<_>>(),
+        vec![
+            "first cause".to_owned(),
+            "second cause".to_owned(),
+            "third cause".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn result_report_ext_display_lazy_methods_are_err_path_lazy() {
+    let _guard = init_test();
+
+    let ok_supplier_calls = std::cell::Cell::new(0usize);
+    let ok: Result<(), Report<AuthError>> = Ok(());
+    let ok = ok
+        .attach_note_lazy(|| {
+            ok_supplier_calls.set(ok_supplier_calls.get() + 1);
+            "ok note"
+        })
+        .with_display_cause_lazy(|| {
+            ok_supplier_calls.set(ok_supplier_calls.get() + 1);
+            "ok cause"
+        });
+
+    assert!(ok.is_ok());
+    assert_eq!(ok_supplier_calls.get(), 0);
+
+    let err_supplier_calls = std::cell::Cell::new(0usize);
+    let err: Result<(), Report<AuthError>> = Err(Report::new(AuthError::InvalidToken));
+    let err = err
+        .attach_note_lazy(|| {
+            err_supplier_calls.set(err_supplier_calls.get() + 1);
+            "wrapped note"
+        })
+        .with_display_cause_lazy(|| {
+            err_supplier_calls.set(err_supplier_calls.get() + 1);
+            "wrapped cause"
+        })
+        .with_display_causes_lazy(|| {
+            err_supplier_calls.set(err_supplier_calls.get() + 1);
+            ["wrapped cause 2"]
+        })
+        .expect_err("should fail");
+
+    assert_eq!(err_supplier_calls.get(), 3);
+    assert_eq!(
+        err.attachments()
+            .iter()
+            .filter_map(|attachment| attachment.as_note())
+            .collect::<Vec<_>>(),
+        vec!["wrapped note".to_owned()]
+    );
+    assert_eq!(
+        err.display_causes()
+            .iter()
+            .map(|cause| cause.to_string())
+            .collect::<Vec<_>>(),
+        vec!["wrapped cause".to_owned(), "wrapped cause 2".to_owned()]
+    );
 }
 
 #[test]

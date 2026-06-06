@@ -66,6 +66,13 @@ macro_rules! for_each_report_builder_method {
             fn attach_printable(message: impl core::fmt::Display + Send + Sync + 'static) -> Self
         }
         $callback! {
+            /// Attaches a printable note to the report using a lazy message supplier.
+            fn attach_printable_lazy<F, M>(message: F) -> Self
+            where
+                F: FnOnce() -> M,
+                M: core::fmt::Display + Send + Sync + 'static
+        }
+        $callback! {
             /// Attaches a payload with an optional media type to the report.
             fn attach_payload(
                 name: impl Into<crate::StaticRefStr>,
@@ -76,6 +83,13 @@ macro_rules! for_each_report_builder_method {
         $callback! {
             /// Adds a note to the report (alias for `attach_printable`).
             fn attach_note(message: impl core::fmt::Display + Send + Sync + 'static) -> Self
+        }
+        $callback! {
+            /// Adds a note to the report using a lazy message supplier.
+            fn attach_note_lazy<F, M>(message: F) -> Self
+            where
+                F: FnOnce() -> M,
+                M: core::fmt::Display + Send + Sync + 'static
         }
         $callback! {
             /// Sets the metadata for the report.
@@ -132,9 +146,24 @@ macro_rules! for_each_report_builder_method {
             fn with_display_cause(cause: impl core::fmt::Display + Send + Sync + 'static) -> Self
         }
         $callback! {
+            /// Adds a display cause to the report using a lazy cause supplier.
+            fn with_display_cause_lazy<F, C>(cause: F) -> Self
+            where
+                F: FnOnce() -> C,
+                C: core::fmt::Display + Send + Sync + 'static
+        }
+        $callback! {
             /// Adds multiple display causes to the report.
             fn with_display_causes<I, C>(causes: I) -> Self
             where
+                I: IntoIterator<Item = C>,
+                C: core::fmt::Display + Send + Sync + 'static
+        }
+        $callback! {
+            /// Adds multiple display causes to the report using a lazy cause-list supplier.
+            fn with_display_causes_lazy<F, I, C>(causes: F) -> Self
+            where
+                F: FnOnce() -> I,
                 I: IntoIterator<Item = C>,
                 C: core::fmt::Display + Send + Sync + 'static
         }

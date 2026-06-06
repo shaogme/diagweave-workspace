@@ -186,6 +186,7 @@ let report3 = Report::new(error3).set_options(
 ### Cause Semantics
 
 - `with_display_cause` / `with_display_causes` accept `impl Display + Send + Sync + 'static` and append display-cause strings (for rendering/IR).
+- `with_display_cause_lazy` / `with_display_causes_lazy` accept `FnOnce` suppliers and invoke them only when display causes are actually built.
 - `with_diag_src_err` appends explicit error objects into the **diagnostic** source chain, requiring `impl Error + Send + Sync + 'static`.
 - The origin source chain is maintained by `map_err()` and `Error::source()`; whether the old inner error continues to be chained onto the new error's `source` is decided by `ReportOptions`.
 
@@ -214,7 +215,7 @@ Used for automatic cross-layer context injection (e.g., RequestID, SessionID).
 - `set_*` methods write the specified diagnostic item; existing fields or keys are overwritten
 - `with_*` methods only set values when the target field or key is not already set (conditional/preserving semantics)
 
-**Closure suppliers**: Any parameter typed as `impl Into<StaticRefStr>`, `impl Into<ContextValue>`, or `impl Into<AttachmentValue>` can also receive a `FnOnce() -> R` closure, as long as `R` itself converts into the corresponding target type. The closure runs when the parameter is actually converted. When used through the `Result<T, E>` or `Result<T, Report<E>>` chained extensions, the `Ok` path does not invoke these suppliers. Context value closures can return strings, numbers, booleans, or arrays; attachment value closures can return strings, numbers, booleans, bytes, objects, or `ContextValue`.
+**Closure suppliers**: Any parameter typed as `impl Into<StaticRefStr>`, `impl Into<ContextValue>`, or `impl Into<AttachmentValue>` can also receive a `FnOnce() -> R` closure, as long as `R` itself converts into the corresponding target type. The closure runs when the parameter is actually converted. When used through the `Result<T, E>` or `Result<T, Report<E>>` chained extensions, the `Ok` path does not invoke these suppliers. Context value closures can return strings, numbers, booleans, or arrays; attachment value closures can return strings, numbers, booleans, bytes, objects, or `ContextValue`. For `impl Display + Send + Sync + 'static` parameters such as notes and display causes, use the explicit lazy variants: `attach_note_lazy`, `attach_printable_lazy`, `with_display_cause_lazy`, and `with_display_causes_lazy`.
 
 | Method | Parameter Type | Description |
 | :--- | :--- | :--- |
@@ -225,6 +226,7 @@ Used for automatic cross-layer context injection (e.g., RequestID, SessionID).
 | `set_options` | `ReportOptions` | Replace the current report options |
 | `set_accumulate_src_chain` | `bool` | Quick toggle for `map_err()` origin `source` chain accumulation |
 | `attach_note` / `attach_printable` | `impl Display + Send + Sync + 'static` | Add remarks or resolution suggestions |
+| `attach_note_lazy` / `attach_printable_lazy` | `FnOnce() -> impl Display + Send + Sync + 'static` | Lazily build note text; when chained through `Result`, runs only on the `Err` path |
 | `attach_payload` / `attach_payload` | `(impl Into<StaticRefStr>, Value, Option<impl Into<StaticRefStr>>)` | Attach named payload (supports media types) |
 | `set_severity` | `Severity` | Set severity (Debug, Info, Warn, Error, Fatal), replacing existing value |
 | `with_severity` | `Severity` | Set severity only if not already set (preserves underlying diagnostic info) |
@@ -236,6 +238,8 @@ Used for automatic cross-layer context injection (e.g., RequestID, SessionID).
 | `with_retryable` | `bool` | Set retryable flag only if not already set (preserves underlying diagnostic info) |
 | `with_display_cause` | `impl Display + Send + Sync + 'static` | Add one display-cause string |
 | `with_display_causes` | `impl IntoIterator<Item = impl Display + Send + Sync + 'static>` | Add multiple display-cause strings |
+| `with_display_cause_lazy` | `FnOnce() -> impl Display + Send + Sync + 'static` | Lazily build one display cause; when chained through `Result`, runs only on the `Err` path |
+| `with_display_causes_lazy` | `FnOnce() -> impl IntoIterator<Item = impl Display + Send + Sync + 'static>` | Lazily build display causes; when chained through `Result`, runs only on the `Err` path |
 | `with_diag_src_err` | `impl Error + Send + Sync + 'static` | Add one explicit error source object |
 | `set_stack_trace` | `StackTrace` | Manually associate existing stack trace info, replacing any existing value |
 | `with_stack_trace` | `StackTrace` | Manually associate existing stack trace info only if not already present |
