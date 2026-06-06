@@ -272,6 +272,8 @@ pub enum MyError {
 附件 key、payload 名称、payload media type、全局上下文 key 等持久化字符串也统一使用 `StaticRefStr`。
 对应的设置接口也接受 `impl Into<StaticRefStr>`，可以直接传入共享字符串而不再额外拷贝。
 
+闭包供应器：参数类型为 `impl Into<StaticRefStr>`、`impl Into<ContextValue>` 或 `impl Into<AttachmentValue>` 的位置都可以直接传入 `FnOnce() -> R` 闭包，只要 `R` 本身可转换为对应目标类型。闭包会在参数实际转换时执行；通过 `Result<T, E>` 或 `Result<T, Report<E>>` 的链式扩展调用时，`Ok` 路径不会执行这些供应器。上下文值闭包可以返回字符串、数字、布尔值或数组；附件值闭包可以返回字符串、数字、布尔值、字节数组、对象，或 `ContextValue`。对于 `impl Display + Send + Sync + 'static` 参数（如 note 和 display causes），请使用显式 lazy 变体：`attach_note_lazy`、`attach_printable_lazy`、`with_display_cause_lazy`、`with_display_causes_lazy`。
+
 `map_err()` 是当前推荐的错误类型转换入口；是否继续累积原生 `source` 链由 `ReportOptions` 控制（debug 构建默认启用，release 构建默认关闭）。
 
 `Report<E>` 的读取接口：
@@ -315,6 +317,7 @@ Note 附件读取：
 原因语义说明：
 
 - `with_display_cause` / `with_display_causes` 接收 `impl Display + Send + Sync + 'static`，并追加到展示原因字符串链（用于渲染与 IR）。
+- `with_display_cause_lazy` / `with_display_causes_lazy` 接收 `FnOnce` 供应器，仅在实际构建展示原因时执行闭包；通过 `Result` 链式调用时仅在 `Err` 路径执行。
 - `with_diag_src_err` 用于显式追加错误对象到**诊断补充链**，参数要求 `impl Error + Send + Sync + 'static`。
 - 原生传播链由 `map_err()` 与 `Error::source()` 维护；`map_err()` 是否把旧内层错误继续串接到新错误的 `source` 链，由 `ReportOptions.accumulate_src_chain` 决定。
 
@@ -466,10 +469,10 @@ JSON 渲染（`json` feature）：
 }
 ```
 
-JSON 输出固定包含 `schema_version: "v0.1.0"`：
+JSON 输出固定包含 `schema_version: "v0.2.0"`：
 
-- Schema：`diagweave/schemas/report-v0.1.0.schema.json`
-- 文档：[`docs/report-json-schema-v0.1.0.md`](docs/report-json-schema-v0.1.0.md)
+- Schema：`diagweave/schemas/report-v0.2.0.schema.json`
+- 文档：[`docs/report-json-schema-v0.2.0.md`](docs/report-json-schema-v0.2.0.md)
 
 ### OTEL schema
 

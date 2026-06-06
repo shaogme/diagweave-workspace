@@ -272,6 +272,8 @@ Hot-path string fields like `category`, `trace_state`, and trace event names are
 Attachment keys, payload names, payload media types, global context keys, and other stored string metadata also use `StaticRefStr`.
 The matching setters accept `impl Into<StaticRefStr>`, so callers can pass owned shared strings without an extra copy.
 
+Closure suppliers: any argument position typed as `impl Into<StaticRefStr>`, `impl Into<ContextValue>`, or `impl Into<AttachmentValue>` can receive a `FnOnce() -> R` closure directly, as long as `R` itself converts into the target type. The closure runs when the argument is actually converted; when using chained extension methods on `Result<T, E>` or `Result<T, Report<E>>`, suppliers are not executed on the `Ok` path. Context-value closures can return strings, numbers, booleans, or arrays; attachment-value closures can return strings, numbers, booleans, byte arrays, objects, or `ContextValue`. For `impl Display + Send + Sync + 'static` arguments such as notes and display causes, use the explicit lazy variants: `attach_note_lazy`, `attach_printable_lazy`, `with_display_cause_lazy`, and `with_display_causes_lazy`.
+
 `map_err()` is the recommended entry point for error type transformation; whether it accumulates the origin `source` chain is controlled by `ReportOptions` (debug: enabled, release: disabled by default).
 
 Read APIs on `Report<E>`:
@@ -315,6 +317,7 @@ Read APIs on `Result<T, Report<E>>` via `InspectReportExt`:
 Cause semantics:
 
 - `with_display_cause` / `with_display_causes` accept `impl Display + Send + Sync + 'static` and append display-cause strings (for rendering/IR).
+- `with_display_cause_lazy` / `with_display_causes_lazy` accept `FnOnce` suppliers and run them only when display causes are actually built; when used through `Result` chains, they run only on the `Err` path.
 - `with_diag_src_err` appends explicit error objects into the **diagnostic** source chain, requiring `impl Error + Send + Sync + 'static`.
 - Origin source propagation is maintained by `map_err()` and `Error::source()`; whether `map_err()` continues to chain the old inner error is controlled by `ReportOptions.accumulate_src_chain`.
 
@@ -450,10 +453,10 @@ JSON renderer (`json` feature):
 }
 ```
 
-JSON output includes `schema_version: "v0.1.0"`.
+JSON output includes `schema_version: "v0.2.0"`.
 
-- Schema: `diagweave/schemas/report-v0.1.0.schema.json`
-- Doc: [`docs/report-json-schema-v0.1.0.md`](docs/report-json-schema-v0.1.0.md)
+- Schema: `diagweave/schemas/report-v0.2.0.schema.json`
+- Doc: [`docs/report-json-schema-v0.2.0.md`](docs/report-json-schema-v0.2.0.md)
 
 ### OTEL schema
 
