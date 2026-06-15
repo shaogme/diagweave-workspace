@@ -12,7 +12,11 @@ pub(crate) fn sanitize_variant_attrs(variant: &Variant) -> Variant {
 fn sanitize_attrs(attrs: &[Attribute]) -> Vec<Attribute> {
     attrs
         .iter()
-        .filter(|attr| !attr.path().is_ident("display") && !attr.path().is_ident("from"))
+        .filter(|attr| {
+            !attr.path().is_ident("display")
+                && !attr.path().is_ident("from")
+                && !attr.path().is_ident("source")
+        })
         .cloned()
         .collect()
 }
