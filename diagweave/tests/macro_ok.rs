@@ -38,6 +38,17 @@ set! {
         #[display("Custom runtime path works")]
         Works,
     }
+
+    SourceOnlyError = {
+        #[display("source error: {0}")]
+        Io(#[source] std::io::Error),
+        #[display("multiple fields source error: {name} (error: {err})")]
+        Multi {
+            name: String,
+            #[source]
+            err: std::io::Error,
+        },
+    }
 }
 
 set! {
@@ -113,4 +124,25 @@ fn from_and_transparent_display_work_for_wrapper_variants() {
 fn set_visibility_respects_pub_crate() {
     let err = ScopedError::Scoped;
     assert_eq!(err.to_string(), "scoped error");
+}
+
+#[test]
+fn source_only_error_retrieves_source() {
+    let io_err = std::io::Error::other("io error");
+    let err = SourceOnlyError::Io(io_err);
+    assert_eq!(err.to_string(), "source error: io error");
+    let src = std::error::Error::source(&err).expect("should have source");
+    assert_eq!(src.to_string(), "io error");
+
+    let io_err2 = std::io::Error::other("another io error");
+    let err_multi = SourceOnlyError::Multi {
+        name: "test".to_string(),
+        err: io_err2,
+    };
+    assert_eq!(
+        err_multi.to_string(),
+        "multiple fields source error: test (error: another io error)"
+    );
+    let src_multi = std::error::Error::source(&err_multi).expect("should have source");
+    assert_eq!(src_multi.to_string(), "another io error");
 }

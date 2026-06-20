@@ -31,6 +31,33 @@ impl DiagnosticError for core::fmt::Error {}
 
 #[cfg(feature = "std")]
 impl DiagnosticError for std::io::Error {}
+#[cfg(feature = "std")]
+impl DiagnosticError for std::num::ParseIntError {}
+#[cfg(feature = "std")]
+impl DiagnosticError for std::num::ParseFloatError {}
+#[cfg(feature = "std")]
+impl DiagnosticError for std::str::Utf8Error {}
+#[cfg(feature = "std")]
+impl DiagnosticError for std::string::FromUtf8Error {}
+#[cfg(feature = "std")]
+impl DiagnosticError for std::env::VarError {}
+#[cfg(feature = "std")]
+impl DiagnosticError for std::net::AddrParseError {}
+#[cfg(feature = "std")]
+impl DiagnosticError for std::array::TryFromSliceError {}
+#[cfg(feature = "std")]
+impl DiagnosticError for std::ffi::NulError {}
+#[cfg(feature = "std")]
+impl DiagnosticError for std::cell::BorrowError {}
+#[cfg(feature = "std")]
+impl DiagnosticError for std::cell::BorrowMutError {}
+#[cfg(feature = "std")]
+impl DiagnosticError for std::char::DecodeUtf16Error {}
+#[cfg(feature = "std")]
+impl DiagnosticError for std::char::ParseCharError {}
+
+#[cfg(all(feature = "std", feature = "json"))]
+impl DiagnosticError for serde_json::Error {}
 
 /// Helper trait to convert a type into a `Result`.
 pub trait IntoResult<T, E> {

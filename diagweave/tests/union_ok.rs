@@ -55,6 +55,8 @@ union! {
         Transparent(u32),
         #[from]
         Simple(SimpleError),
+        #[display("Source only: {0}")]
+        SourceOnly(#[source] SimpleError),
         #[display("Escaped braces {{db}} code={0}")]
         TupleEscaped(u32),
         #[display("Internal error: {message:?}")]
@@ -181,4 +183,13 @@ fn test_union_to_report_trans() {
         }
         _ => panic!("unexpected inner error in union report"),
     }
+}
+
+#[test]
+fn test_source_only_in_union() {
+    let simple = SimpleError("some error");
+    let api = ApiError::SourceOnly(simple);
+    assert_eq!(api.to_string(), "Source only: simple error: some error");
+    let src = api.source().expect("should have source");
+    assert_eq!(src.to_string(), "simple error: some error");
 }
