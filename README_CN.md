@@ -7,7 +7,7 @@
 [![crates.io](https://img.shields.io/crates/v/diagweave.svg)](https://crates.io/crates/diagweave)
 [![docs.rs](https://img.shields.io/docsrs/diagweave)](https://docs.rs/diagweave)
 [![license](https://img.shields.io/crates/l/diagweave)](#许可证)
-[![build](https://img.shields.io/github/actions/workflow/status/shaogme/diagweave/ci.yml?branch=main)](https://github.com/shaogme/diagweave/actions)
+[![build](https://img.shields.io/github/actions/workflow/status/shaogme/diagweave-workspace/ci.yml?branch=main)](https://github.com/shaogme/diagweave-workspace/actions)
 
 [English](./README.md) · [简体中文](./README_CN.md)
 
