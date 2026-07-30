@@ -57,7 +57,7 @@ fn expand_union(input: UnionInput) -> Result<proc_macro2::TokenStream> {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     Ok(quote! {
         #(#merged_attrs)*
-        #vis enum #enum_name #ty_generics #where_clause {
+        #vis enum #enum_name #generics {
             #(#generated_variants),*
         }
 

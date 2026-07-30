@@ -90,3 +90,51 @@ fn test_set_to_report_trans() {
         _ => panic!("unexpected inner error in set report"),
     }
 }
+
+set! {
+    SetDedupA = {
+        #[display("shared variant code={code}")]
+        SharedVariant { code: u32 },
+        #[display("only A")]
+        OnlyA,
+    }
+
+    SetDedupB = {
+        #[display("shared variant code={code}")]
+        SharedVariant { code: u32 },
+        #[display("only B")]
+        OnlyB,
+    }
+
+    SetDedupUnion = SetDedupA | SetDedupB | {
+        #[display("shared variant code={code}")]
+        SharedVariant { code: u32 },
+        #[display("only Union")]
+        OnlyUnion,
+    }
+}
+
+#[test]
+fn test_non_generic_set_deduplication() {
+    let a = SetDedupA::SharedVariant { code: 10 };
+    let u: SetDedupUnion = a.into();
+    assert_eq!(u.to_string(), "shared variant code=10");
+
+    let a_only = SetDedupA::OnlyA;
+    let u_a: SetDedupUnion = a_only.into();
+    assert_eq!(u_a.to_string(), "only A");
+
+    let b = SetDedupB::SharedVariant { code: 20 };
+    let u2: SetDedupUnion = b.into();
+    assert_eq!(u2.to_string(), "shared variant code=20");
+
+    let b_only = SetDedupB::OnlyB;
+    let u3: SetDedupUnion = b_only.into();
+    match u3 {
+        SetDedupUnion::OnlyB => {}
+        _ => panic!("unexpected variant"),
+    }
+
+    let u_union = SetDedupUnion::OnlyUnion;
+    assert_eq!(u_union.to_string(), "only Union");
+}

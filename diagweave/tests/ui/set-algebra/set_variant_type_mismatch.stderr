@@ -1,0 +1,5 @@
+error: variant `Shared` has the same name but a different field shape; cannot deduplicate union members
+  --> tests/ui/set-algebra/set_variant_type_mismatch.rs:11:9
+   |
+11 |         Shared(i32),
+   |         ^^^^^^

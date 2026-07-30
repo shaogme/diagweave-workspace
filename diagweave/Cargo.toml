@@ -1,6 +1,6 @@
 [package]
 name = "diagweave"
-version = "0.5.2"
+version = "0.5.4"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -26,6 +26,8 @@ criterion = "0.8.2"
 insta = "1"
 trybuild = "1.0"
 tracing-subscriber = { workspace = true, features = ["registry", "std"] }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+serde_json = { workspace = true, features = ["alloc"] }
 
 [features]
 default = ["std"]

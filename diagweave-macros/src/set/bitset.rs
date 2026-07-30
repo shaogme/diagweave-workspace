@@ -22,26 +22,6 @@ impl BitSet {
         !existed
     }
 
-    #[cfg(test)]
-    pub(crate) fn contains(&self, bit: usize) -> bool {
-        let word = bit / 64;
-        if word >= self.words.len() {
-            return false;
-        }
-        let mask = 1u64 << (bit % 64);
-        self.words[word] & mask != 0
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn union_with(&mut self, other: &Self) {
-        if other.words.len() > self.words.len() {
-            self.words.resize(other.words.len(), 0);
-        }
-        for (i, right) in other.words.iter().enumerate() {
-            self.words[i] |= right;
-        }
-    }
-
     pub(crate) fn is_subset_of(&self, other: &Self) -> bool {
         for (i, left) in self.words.iter().enumerate() {
             let right = other.words.get(i).copied().unwrap_or(0);
@@ -92,7 +72,7 @@ mod tests {
     }
 
     #[test]
-    fn subset_union_basics() {
+    fn subset_basics() {
         let mut a = BitSet::with_capacity(128);
         let mut b = BitSet::with_capacity(128);
         a.insert(1);
@@ -103,12 +83,6 @@ mod tests {
 
         assert!(a.is_subset_of(&b));
         assert!(!b.is_subset_of(&a));
-
-        let mut c = a.clone();
-        c.union_with(&b);
-        assert!(c.contains(1));
-        assert!(c.contains(2));
-        assert!(c.contains(65));
     }
 
     #[test]
@@ -140,17 +114,6 @@ mod tests {
 
             assert_eq!(left.is_subset_of(&right), left_subset_right);
             assert_eq!(right.is_subset_of(&left), right_subset_left);
-
-            let mut union = left.clone();
-            union.union_with(&right);
-            for (idx, expected) in left_ref
-                .iter()
-                .zip(right_ref.iter())
-                .map(|(l, r)| *l || *r)
-                .enumerate()
-            {
-                assert_eq!(union.contains(idx), expected, "index={idx}, round={round}");
-            }
         }
     }
 }

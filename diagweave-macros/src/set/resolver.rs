@@ -29,6 +29,7 @@ pub(crate) struct ResolvedSet {
     pub(crate) generics: syn::Generics,
     pub(crate) variants: Vec<ResolvedVariant>,
     pub(crate) members: BitSet,
+    pub(crate) set_refs: Vec<SetRef>,
 }
 
 pub(crate) fn collect_decls(decls: Vec<SetDecl>) -> Result<BTreeMap<String, SetDecl>> {
@@ -70,14 +71,18 @@ pub(crate) fn resolve_set(
         ));
     }
 
-    let decl = decls
-        .get(name)
-        .ok_or_else(|| Error::new(Span::call_site(), format!("unknown set `{name}`")))?;
-    stack.push(name.to_owned());
+    let decl = decls.get(name).ok_or_else(|| {
+        Error::new(
+            Span::call_site(),
+            format!("referenced undefined set `{name}`"),
+        )
+    })?;
 
-    let mut variants = Vec::<ResolvedVariant>::new();
-    let mut signatures = BTreeMap::<String, VariantIdentity>::new();
+    stack.push(name.to_owned());
+    let mut variants = Vec::new();
+    let mut signatures = BTreeMap::new();
     let mut members = BitSet::with_capacity(symbol_table.len());
+    let mut set_refs = Vec::new();
 
     {
         let mut ctx = ResolveContext {
@@ -88,6 +93,7 @@ pub(crate) fn resolve_set(
             variants: &mut variants,
             signatures: &mut signatures,
             members: &mut members,
+            set_refs: &mut set_refs,
         };
 
         for term in &decl.expr.terms {
@@ -105,6 +111,7 @@ pub(crate) fn resolve_set(
             generics: decl.generics.clone(),
             variants,
             members,
+            set_refs,
         },
     );
     Ok(())
@@ -118,6 +125,7 @@ struct ResolveContext<'a> {
     variants: &'a mut Vec<ResolvedVariant>,
     signatures: &'a mut BTreeMap<String, VariantIdentity>,
     members: &'a mut BitSet,
+    set_refs: &'a mut Vec<SetRef>,
 }
 
 impl<'a> ResolveContext<'a> {
@@ -165,12 +173,18 @@ impl<'a> ResolveContext<'a> {
             self.stack,
             self.symbol_table,
         )?;
-        let (source_generics, source_variants) = {
+        self.set_refs.push(set_ref.clone());
+
+        let (source_generics, source_variants, inherited_refs) = {
             let source = self
                 .resolved
                 .get(&ref_name)
                 .ok_or_else(|| Error::new(set_ref.name.span(), "source set should be resolved"))?;
-            (source.generics.clone(), source.variants.clone())
+            (
+                source.generics.clone(),
+                source.variants.clone(),
+                source.set_refs.clone(),
+            )
         };
 
         let mut type_map = BTreeMap::<Ident, syn::Type>::new();
@@ -181,17 +195,17 @@ impl<'a> ResolveContext<'a> {
             for param in &source_generics.params {
                 match param {
                     GenericParam::Type(type_param) => {
-                        if let Some(arg) = arg_iter.next() {
-                            if let GenericArgument::Type(ty) = arg {
-                                type_map.insert(type_param.ident.clone(), ty.clone());
-                            }
+                        if let Some(arg) = arg_iter.next()
+                            && let GenericArgument::Type(ty) = arg
+                        {
+                            type_map.insert(type_param.ident.clone(), ty.clone());
                         }
                     }
                     GenericParam::Lifetime(lifetime_param) => {
-                        if let Some(arg) = arg_iter.next() {
-                            if let GenericArgument::Lifetime(lt) = arg {
-                                lifetime_map.insert(lifetime_param.lifetime.clone(), lt.clone());
-                            }
+                        if let Some(arg) = arg_iter.next()
+                            && let GenericArgument::Lifetime(lt) = arg
+                        {
+                            lifetime_map.insert(lifetime_param.lifetime.clone(), lt.clone());
                         }
                     }
                     GenericParam::Const(_) => {}
@@ -207,6 +221,19 @@ impl<'a> ResolveContext<'a> {
                     lifetime_map.insert(lt.clone(), lt.clone());
                 }
             }
+        }
+
+        for mut inherited in inherited_refs {
+            if let Some(ref mut args) = inherited.args
+                && (!type_map.is_empty() || !lifetime_map.is_empty())
+            {
+                let mut substitutor = GenericSubstitutor {
+                    type_map: &type_map,
+                    lifetime_map: &lifetime_map,
+                };
+                substitutor.visit_angle_bracketed_generic_arguments_mut(args);
+            }
+            self.set_refs.push(inherited);
         }
 
         for var in source_variants {
@@ -252,13 +279,14 @@ struct GenericSubstitutor<'a> {
 
 impl<'b> VisitMut for GenericSubstitutor<'b> {
     fn visit_type_mut(&mut self, ty: &mut syn::Type) {
-        if let syn::Type::Path(type_path) = ty {
-            if type_path.qself.is_none() && type_path.path.segments.len() == 1 {
-                let ident = &type_path.path.segments[0].ident;
-                if let Some(replacement) = self.type_map.get(ident) {
-                    *ty = replacement.clone();
-                    return;
-                }
+        if let syn::Type::Path(type_path) = ty
+            && type_path.qself.is_none()
+            && type_path.path.segments.len() == 1
+        {
+            let ident = &type_path.path.segments[0].ident;
+            if let Some(replacement) = self.type_map.get(ident) {
+                *ty = replacement.clone();
+                return;
             }
         }
         visit_mut::visit_type_mut(self, ty);

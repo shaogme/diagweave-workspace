@@ -36,7 +36,7 @@ pub(crate) fn generate_enum_impl(set: &ResolvedSet) -> Result<TokenStream> {
     let enum_impl_helpers = enum_impl_helpers(enum_ident, generics, &source_arms);
     Ok(quote! {
         #(#merged_attrs)*
-        #vis enum #enum_ident #ty_generics #where_clause { #(#variants),* }
+        #vis enum #enum_ident #generics { #(#variants),* }
         #enum_impl_helpers
         impl #impl_generics ::core::fmt::Display for #enum_ident #ty_generics #where_clause {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
@@ -56,6 +56,54 @@ pub(crate) fn generate_all_from_impls(
         let outer = resolved
             .get(outer_name)
             .ok_or_else(|| Error::new(Span::call_site(), "resolved set must exist"))?;
+        let outer_ident = &outer.name;
+        let (outer_impl_generics, outer_ty_generics, outer_where_clause) =
+            outer.generics.split_for_impl();
+        let mut generated_keys = std::collections::BTreeSet::<String>::new();
+
+        // 1. Process set_refs declared or inherited by outer set
+        for set_ref in &outer.set_refs {
+            let inner_name = set_ref.name.to_string();
+            if inner_name == *outer_name {
+                continue;
+            }
+            let inner = match resolved.get(&inner_name) {
+                Some(set) => set,
+                None => continue,
+            };
+            let inner_ident = &inner.name;
+            let inner_ty = if let Some(args) = &set_ref.args {
+                quote!(#inner_ident #args)
+            } else if inner.generics.params.is_empty() {
+                quote!(#inner_ident)
+            } else {
+                let (_, inner_ty_generics, _) = inner.generics.split_for_impl();
+                quote!(#inner_ident #inner_ty_generics)
+            };
+
+            let key = inner_ty.to_string();
+            if !generated_keys.insert(key) {
+                continue;
+            }
+
+            let arms = inner
+                .variants
+                .iter()
+                .map(|v| from_arm(&inner.name, &v.variant))
+                .collect::<Result<Vec<_>>>()?;
+
+            from_impls.push(quote! {
+                impl #outer_impl_generics ::core::convert::From<#inner_ty> for #outer_ident #outer_ty_generics #outer_where_clause {
+                    fn from(value: #inner_ty) -> Self {
+                        match value {
+                            #(#arms),*
+                        }
+                    }
+                }
+            });
+        }
+
+        // 2. Process non-generic subset relationships
         for inner_name in names {
             if inner_name == outer_name {
                 continue;
@@ -63,23 +111,26 @@ pub(crate) fn generate_all_from_impls(
             let inner = resolved
                 .get(inner_name)
                 .ok_or_else(|| Error::new(Span::call_site(), "resolved set must exist"))?;
-            if inner.members.is_subset_of(&outer.members) {
+
+            if inner.generics.params.is_empty()
+                && outer.generics.params.is_empty()
+                && inner.members.is_subset_of(&outer.members)
+            {
+                let inner_ident = &inner.name;
+                let key = inner_ident.to_string();
+                if !generated_keys.insert(key) {
+                    continue;
+                }
+
                 let arms = inner
                     .variants
                     .iter()
                     .map(|v| from_arm(&inner.name, &v.variant))
                     .collect::<Result<Vec<_>>>()?;
-                let inner_ident = &inner.name;
-                let outer_ident = &outer.name;
-
-                let (_, inner_ty_generics, _) = inner.generics.split_for_impl();
-                let (_, outer_ty_generics, _) = outer.generics.split_for_impl();
-                let merged = merge_generics(&inner.generics, &outer.generics);
-                let (merged_impl_generics, _, merged_where_clause) = merged.split_for_impl();
 
                 from_impls.push(quote! {
-                    impl #merged_impl_generics ::core::convert::From<#inner_ident #inner_ty_generics> for #outer_ident #outer_ty_generics #merged_where_clause {
-                        fn from(value: #inner_ident #inner_ty_generics) -> Self {
+                    impl ::core::convert::From<#inner_ident> for #outer_ident {
+                        fn from(value: #inner_ident) -> Self {
                             match value {
                                 #(#arms),*
                             }
@@ -154,28 +205,4 @@ fn from_arm(inner: &Ident, variant: &Variant) -> Result<TokenStream> {
             })
         }
     }
-}
-
-pub(crate) fn merge_generics(g1: &syn::Generics, g2: &syn::Generics) -> syn::Generics {
-    let mut merged = g1.clone();
-    for param in &g2.params {
-        let exists = merged.params.iter().any(|p| match (p, param) {
-            (syn::GenericParam::Type(t1), syn::GenericParam::Type(t2)) => t1.ident == t2.ident,
-            (syn::GenericParam::Lifetime(l1), syn::GenericParam::Lifetime(l2)) => {
-                l1.lifetime == l2.lifetime
-            }
-            (syn::GenericParam::Const(c1), syn::GenericParam::Const(c2)) => c1.ident == c2.ident,
-            _ => false,
-        });
-        if !exists {
-            merged.params.push(param.clone());
-        }
-    }
-    if let Some(where2) = &g2.where_clause {
-        let where_clause = merged.make_where_clause();
-        for pred in &where2.predicates {
-            where_clause.predicates.push(pred.clone());
-        }
-    }
-    merged
 }

@@ -307,10 +307,10 @@ impl<'a> Iterator for ContextMapIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let (Some(key), Some(values)) = (self.current_key, self.current_values.as_mut()) {
-                if let Some(value) = values.next() {
-                    return Some((key, value));
-                }
+            if let (Some(key), Some(values)) = (self.current_key, self.current_values.as_mut())
+                && let Some(value) = values.next()
+            {
+                return Some((key, value));
             }
 
             let (key, values) = self.outer.next()?;
