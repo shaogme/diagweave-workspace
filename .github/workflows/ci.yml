@@ -2,30 +2,65 @@ name: CI
 
 on:
   push:
-    branches:
-      - "main"
+    branches: [ main ]
   pull_request:
-    branches:
-      - "main"
+    branches: [ main ]
 
 jobs:
-  test:
+  generate-matrix:
+    name: Generate Matrix
     runs-on: ubuntu-latest
+    outputs:
+      chunks: ${{ steps.set-matrix.outputs.chunks }}
     steps:
-      - name: Checkout
+      - name: Checkout sources
         uses: actions/checkout@main
 
-      - name: Setup Rust
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+
+      - name: Generate feature combinations into 16 chunks
+        id: set-matrix
+        run: |
+          # Get list of test commands from cargo hack
+          COMMANDS=$(cargo hack test --feature-powerset --print-command-list | grep -v '^\s*$')
+
+          # Convert COMMANDS to array, divide into 16 groups, and format as JSON array of string arrays
+          JSON=$(echo "$COMMANDS" | jq -R -s -c '
+            split("\n")
+            | map(select(length > 0)) as $all
+            | [range(0; 16) as $i | [$all[range($i; $all | length; 16)]]]
+            | map(select(length > 0))
+          ')
+
+          echo "chunks=$JSON" >> $GITHUB_OUTPUT
+
+  test:
+    name: Test Chunk
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        chunk: ${{ fromJson(needs.generate-matrix.outputs.chunks) }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@main
+
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "ci-test-matrix"
 
-      - name: Install cargo-hack
-        run: cargo install cargo-hack --locked
-
-      - name: Run workspace and feature matrix tests
-        run: bash scripts/test-feature-matrix.sh
-
-      - name: CI success
-        run: echo "CI success"
+      - name: Run cargo test batch
+        run: |
+          echo '${{ toJson(matrix.chunk) }}' | jq -r '.[]' | while read -r cmd; do
+            echo "Running: $cmd"
+            eval "$cmd"
+          done
