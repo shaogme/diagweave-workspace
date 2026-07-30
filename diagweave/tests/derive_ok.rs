@@ -109,3 +109,29 @@ fn test_err_to_report_trans() {
         _ => panic!("unexpected inner error"),
     }
 }
+
+#[derive(Debug, Error)]
+#[display("generic struct: {data}")]
+struct GenericStructError<T: std::fmt::Display + std::fmt::Debug + Send + Sync + 'static> {
+    data: T,
+}
+
+#[derive(Debug, Error)]
+enum GenericEnumError<T: std::fmt::Display + std::fmt::Debug + Send + Sync + 'static> {
+    #[display("generic variant: {0}")]
+    Variant(T),
+    #[display(transparent)]
+    FromVariant(#[from] GenericStructError<T>),
+}
+
+#[test]
+fn test_derive_error_generics() {
+    let struct_err = GenericStructError { data: 123 };
+    assert_eq!(struct_err.to_string(), "generic struct: 123");
+
+    let enum_err: GenericEnumError<i32> = struct_err.into();
+    assert_eq!(enum_err.to_string(), "generic struct: 123");
+
+    let variant_err = GenericEnumError::Variant(456);
+    assert_eq!(variant_err.to_string(), "generic variant: 456");
+}

@@ -35,6 +35,7 @@ fn expand_union(input: UnionInput) -> Result<proc_macro2::TokenStream> {
     let mut used_variant_names = BTreeMap::<String, Span>::new();
     let mut used_source_types = BTreeMap::<String, Span>::new();
     let enum_name = &input.name;
+    let generics = &input.generics;
     let vis = input.vis;
 
     let mut ctx = ExpandContext {
@@ -46,21 +47,23 @@ fn expand_union(input: UnionInput) -> Result<proc_macro2::TokenStream> {
         used_variant_names: &mut used_variant_names,
         used_source_types: &mut used_source_types,
         enum_name,
+        generics,
     };
     for term in input.terms {
         ctx.expand_term(term)?;
     }
     let merged_attrs = merge_debug_derive(attrs)?;
-    let enum_impl_helpers = enum_impl_helpers(enum_name, &source_arms);
+    let enum_impl_helpers = enum_impl_helpers(enum_name, generics, &source_arms);
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     Ok(quote! {
         #(#merged_attrs)*
-        #vis enum #enum_name {
+        #vis enum #enum_name #ty_generics #where_clause {
             #(#generated_variants),*
         }
 
         #enum_impl_helpers
 
-        impl ::core::fmt::Display for #enum_name {
+        impl #impl_generics ::core::fmt::Display for #enum_name #ty_generics #where_clause {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 match self {
                     #(#display_arms),*
@@ -99,6 +102,7 @@ struct UnionInput {
     attrs: Vec<Attribute>,
     vis: Visibility,
     name: Ident,
+    generics: syn::Generics,
     terms: Vec<UnionItem>,
 }
 
@@ -108,12 +112,24 @@ impl Parse for UnionInput {
         let vis = input.parse::<Visibility>()?;
         input.parse::<Token![enum]>()?;
         let name = input.parse::<Ident>()?;
+        let mut generics = input.parse::<syn::Generics>()?;
+        generics.where_clause = input.parse::<Option<syn::WhereClause>>()?;
+        if generics.where_clause.is_none() && input.peek(Token![where]) {
+            generics.where_clause = input.parse::<Option<syn::WhereClause>>()?;
+        }
         input.parse::<Token![=]>()?;
+        if generics.where_clause.is_none() && input.peek(Token![where]) {
+            generics.where_clause = input.parse::<Option<syn::WhereClause>>()?;
+        }
         let terms = Punctuated::<UnionItem, Token![|]>::parse_separated_nonempty(input)?;
+        if generics.where_clause.is_none() && input.peek(Token![where]) {
+            generics.where_clause = input.parse::<Option<syn::WhereClause>>()?;
+        }
         Ok(Self {
             attrs,
             vis,
             name,
+            generics,
             terms: terms.into_iter().collect(),
         })
     }
@@ -165,6 +181,7 @@ struct ExpandContext<'a> {
     used_variant_names: &'a mut BTreeMap<String, Span>,
     used_source_types: &'a mut BTreeMap<String, Span>,
     enum_name: &'a Ident,
+    generics: &'a syn::Generics,
 }
 
 impl<'a> ExpandContext<'a> {
@@ -177,6 +194,7 @@ impl<'a> ExpandContext<'a> {
 
     fn expand_external(&mut self, ty: syn::TypePath, alias: Option<Ident>) -> Result<()> {
         let enum_name = self.enum_name;
+        let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
         let variant_ident = alias.unwrap_or_else(|| {
             let last = ty.path.segments.last().map(|s| &s.ident);
             match last {
@@ -191,18 +209,18 @@ impl<'a> ExpandContext<'a> {
         )?;
         self.generated_variants.push(quote! { #variant_ident(#ty) });
         self.display_arms.push(quote! {
-            #enum_name::#variant_ident(inner) => write!(f, "{}", inner)
+            Self::#variant_ident(inner) => write!(f, "{}", inner)
         });
         // External type variants should NOT return the inner type as source.
         // This is because they are created via From conversion, not by wrapping
         // a source error. The origin_source_errors is already populated by map_err.
         self.source_arms.push(quote! {
-            #enum_name::#variant_ident(..) => ::core::option::Option::None
+            Self::#variant_ident(..) => ::core::option::Option::None
         });
         self.constructor_variants
             .push(syn::parse_quote!(#variant_ident(#ty)));
         let key = quote::quote!(#ty).to_string();
-        if let Some(_previous) = self.used_source_types.get(&key) {
+        if self.used_source_types.contains_key(&key) {
             return Err(Error::new(
                 variant_ident.span(),
                 format!("duplicate From source type `{}` in `{}`", key, enum_name),
@@ -210,7 +228,7 @@ impl<'a> ExpandContext<'a> {
         }
         self.used_source_types.insert(key, variant_ident.span());
         self.from_impls.push(quote! {
-            impl ::core::convert::From<#ty> for #enum_name {
+            impl #impl_generics ::core::convert::From<#ty> for #enum_name #ty_generics #where_clause {
                 fn from(value: #ty) -> Self { Self::#variant_ident(value) }
             }
         });
@@ -219,6 +237,7 @@ impl<'a> ExpandContext<'a> {
 
     fn expand_inline_item(&mut self, inline: InlineVariants) -> Result<()> {
         let enum_name = self.enum_name;
+        let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
         for variant in inline.variants {
             check_unique_variant(
                 &variant.ident,
@@ -226,13 +245,12 @@ impl<'a> ExpandContext<'a> {
                 variant.ident.span(),
             )?;
             self.display_arms.push(display_arm(enum_name, &variant)?);
-            self.source_arms
-                .push(source_arm_for_variant(enum_name, &variant)?);
+            self.source_arms.push(source_arm_for_variant(&variant)?);
             self.constructor_variants.push(variant.clone());
             if is_from_variant(&variant)? {
-                let (source_ty, ctor) = from_variant_source(enum_name, &variant)?;
+                let (source_ty, ctor) = from_variant_source(&variant)?;
                 let key = quote::quote!(#source_ty).to_string();
-                if let Some(_previous) = self.used_source_types.get(&key) {
+                if self.used_source_types.contains_key(&key) {
                     return Err(Error::new(
                         variant.ident.span(),
                         format!("duplicate From source type `{}` in `{}`", key, enum_name),
@@ -240,7 +258,7 @@ impl<'a> ExpandContext<'a> {
                 }
                 self.used_source_types.insert(key, variant.ident.span());
                 self.from_impls.push(quote! {
-                    impl ::core::convert::From<#source_ty> for #enum_name {
+                    impl #impl_generics ::core::convert::From<#source_ty> for #enum_name #ty_generics #where_clause {
                         fn from(value: #source_ty) -> Self {
                             #ctor
                         }

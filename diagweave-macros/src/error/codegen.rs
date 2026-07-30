@@ -33,7 +33,6 @@ pub(crate) fn make_bindings(fields: &Fields) -> Result<BindingStyle> {
 }
 
 pub(crate) fn variant_pattern(
-    enum_ident: &Ident,
     variant_ident: &Ident,
     fields: &Fields,
     binding: &BindingStyle,
@@ -46,25 +45,20 @@ pub(crate) fn variant_pattern(
         (Fields::Unnamed(_), BindingStyle::Unnamed(idents)) => {
             quote! { Self::#variant_ident(#(#idents),*) }
         }
-        _ => quote! { #enum_ident::#variant_ident },
+        _ => quote! { Self::#variant_ident },
     }
 }
 
-pub(crate) fn struct_pattern(
-    ident: &Ident,
-    fields: &Fields,
-    binding: &BindingStyle,
-) -> proc_macro2::TokenStream {
+pub(crate) fn struct_pattern(fields: &Fields, binding: &BindingStyle) -> proc_macro2::TokenStream {
     match (fields, binding) {
         (Fields::Unit, BindingStyle::Unit) => quote! { Self },
         (Fields::Named(_), BindingStyle::Named(idents)) => quote! { Self { #(#idents),* } },
         (Fields::Unnamed(_), BindingStyle::Unnamed(idents)) => quote! { Self(#(#idents),*) },
-        _ => quote! { #ident },
+        _ => quote! { Self },
     }
 }
 
 pub(crate) fn variant_ctor(
-    enum_ident: &Ident,
     variant_ident: &Ident,
     fields: &Fields,
     from_index: usize,
@@ -79,11 +73,11 @@ pub(crate) fn variant_ctor(
                 .and_then(|field| field.ident.clone())
                 .ok_or_else(|| Error::new(fields.span(), "invalid #[from] field index"))?;
             Ok(quote! {
-                #enum_ident::#variant_ident { #field_ident: value }
+                Self::#variant_ident { #field_ident: value }
             })
         }
         Fields::Unnamed(_) => Ok(quote! {
-            #enum_ident::#variant_ident(value)
+            Self::#variant_ident(value)
         }),
         Fields::Unit => Err(Error::new(
             fields.span(),
@@ -92,11 +86,7 @@ pub(crate) fn variant_ctor(
     }
 }
 
-pub(crate) fn struct_ctor(
-    ident: &Ident,
-    fields: &Fields,
-    from_index: usize,
-) -> Result<proc_macro2::TokenStream> {
+pub(crate) fn struct_ctor(fields: &Fields, from_index: usize) -> Result<proc_macro2::TokenStream> {
     use syn::spanned::Spanned;
     match fields {
         Fields::Named(named) => {
@@ -107,10 +97,10 @@ pub(crate) fn struct_ctor(
                 .and_then(|field| field.ident.clone())
                 .ok_or_else(|| Error::new(fields.span(), "invalid #[from] field index"))?;
             Ok(quote! {
-                #ident { #field_ident: value }
+                Self { #field_ident: value }
             })
         }
-        Fields::Unnamed(_) => Ok(quote! { #ident(value) }),
+        Fields::Unnamed(_) => Ok(quote! { Self(value) }),
         Fields::Unit => Err(Error::new(
             fields.span(),
             "#[from] requires a field-bearing struct",

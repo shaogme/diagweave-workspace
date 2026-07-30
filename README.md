@@ -148,6 +148,7 @@ set! {
 Additional notes:
 - enum visibility follows the `set!` declaration (`pub`, `pub(crate)`, or private)
 - top-level attributes on the `set!` enum are preserved
+- full support for generic parameters (type generics, lifetimes, and `where` clauses), with automatic type substitution and merged bounds across set compositions
 - auto helper: `source()` on the enum, and implementation of `DiagnosticError` trait (providing `to_report()`, `to_report_trans()`, and direct builder methods)
 
 ## `union!`
@@ -194,6 +195,7 @@ Highlights:
 - auto-`From<T>` for listed external types
 - display delegation for wrapped external errors
 - `as Alias` for variant naming override
+- full support for generic parameters (type generics, lifetimes, and `where` clauses)
 - auto `Error` implementation and auto `Debug` backfill
 - auto helper: `source()` on the enum, and implementation of `DiagnosticError` trait (providing `to_report()`, `to_report_trans()`, and direct builder methods)
 

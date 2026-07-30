@@ -24,6 +24,7 @@ pub(crate) struct SetDecl {
     pub(crate) attrs: Vec<Attribute>,
     pub(crate) vis: Visibility,
     pub(crate) name: Ident,
+    pub(crate) generics: syn::Generics,
     pub(crate) expr: UnionExpr,
 }
 
@@ -32,12 +33,24 @@ impl Parse for SetDecl {
         let attrs = input.call(Attribute::parse_outer)?;
         let vis = input.parse::<Visibility>()?;
         let name = input.parse::<Ident>()?;
+        let mut generics = input.parse::<syn::Generics>()?;
+        generics.where_clause = input.parse::<Option<syn::WhereClause>>()?;
+        if generics.where_clause.is_none() && input.peek(Token![where]) {
+            generics.where_clause = input.parse::<Option<syn::WhereClause>>()?;
+        }
         input.parse::<Token![=]>()?;
+        if generics.where_clause.is_none() && input.peek(Token![where]) {
+            generics.where_clause = input.parse::<Option<syn::WhereClause>>()?;
+        }
         let expr = input.parse::<UnionExpr>()?;
+        if generics.where_clause.is_none() && input.peek(Token![where]) {
+            generics.where_clause = input.parse::<Option<syn::WhereClause>>()?;
+        }
         Ok(Self {
             attrs,
             vis,
             name,
+            generics,
             expr,
         })
     }
@@ -58,20 +71,32 @@ impl Parse for UnionExpr {
 }
 
 #[derive(Clone)]
+pub(crate) struct SetRef {
+    pub(crate) name: Ident,
+    pub(crate) args: Option<syn::AngleBracketedGenericArguments>,
+}
+
+#[derive(Clone)]
 pub(crate) enum UnionTerm {
-    SetRef(Ident),
+    SetRef(SetRef),
     Inline(InlineVariants),
 }
 
 impl Parse for UnionTerm {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
-        if input.peek(Ident) {
-            return Ok(Self::SetRef(input.parse::<Ident>()?));
-        }
         if input.peek(syn::token::Brace) {
             return Ok(Self::Inline(input.parse::<InlineVariants>()?));
         }
-        Err(input.error("union term must be a set identifier or an inline variant block"))
+        if input.peek(Ident) {
+            let name = input.parse::<Ident>()?;
+            let args = if input.peek(Token![<]) {
+                Some(input.parse::<syn::AngleBracketedGenericArguments>()?)
+            } else {
+                None
+            };
+            return Ok(Self::SetRef(SetRef { name, args }));
+        }
+        Err(input.error("union term must be a set identifier (with optional generic arguments) or an inline variant block"))
     }
 }
 

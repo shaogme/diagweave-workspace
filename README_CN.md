@@ -148,6 +148,7 @@ set! {
 补充说明：
 - 枚举可见性遵循 `set!` 声明（`pub` / `pub(crate)` / 私有）
 - `set!` 顶层属性会保留在生成的 enum 上
+- 完整支持泛型参数（类型泛型、生命周期及 `where` 约束），集合组合自动完成类型替换与约束合并
 - 自动生成 `source()` 方法，并自动实现 `DiagnosticError` trait（提供 `to_report()`、`to_report_trans()` 和直接链式诊断方法）
 
 ## `union!`
@@ -194,6 +195,7 @@ union! {
 - 为列出的外部类型自动实现 `From<T>`
 - 外部类型自动委托 `Display`
 - 支持 `as Alias` 覆盖默认变体名
+- 完整支持泛型参数（类型泛型、生命周期及 `where` 约束）
 - 自动实现 `Error`，缺少 `Debug`时自动补充
 - 自动生成 `source()` 方法，并自动实现 `DiagnosticError` trait（提供 `to_report()`、`to_report_trans()` 和直接链式诊断方法）
 

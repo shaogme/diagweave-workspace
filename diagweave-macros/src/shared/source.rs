@@ -9,28 +9,19 @@ struct FieldRef {
     has_source: bool,
 }
 
-pub(crate) fn source_arm_for_variant(enum_ident: &Ident, variant: &Variant) -> Result<TokenStream> {
+pub(crate) fn source_arm_for_variant(variant: &Variant) -> Result<TokenStream> {
     let source_index = resolved_source_index(&variant.fields)?;
     let variant_ident = &variant.ident;
     match &variant.fields {
-        Fields::Unit => {
-            build_unit_source_arm(enum_ident, variant_ident, &variant.fields, source_index)
+        Fields::Unit => build_unit_source_arm(variant_ident, &variant.fields, source_index),
+        Fields::Named(named) => {
+            build_named_source_arm(variant_ident, &variant.fields, named, source_index)
         }
-        Fields::Named(named) => build_named_source_arm(
-            enum_ident,
-            variant_ident,
-            &variant.fields,
-            named,
-            source_index,
-        ),
-        Fields::Unnamed(unnamed) => {
-            build_unnamed_source_arm(enum_ident, variant_ident, unnamed, source_index)
-        }
+        Fields::Unnamed(unnamed) => build_unnamed_source_arm(variant_ident, unnamed, source_index),
     }
 }
 
 fn build_unit_source_arm(
-    enum_ident: &Ident,
     variant_ident: &Ident,
     fields: &Fields,
     source_index: Option<usize>,
@@ -41,18 +32,17 @@ fn build_unit_source_arm(
             "#[source]/#[from] requires a field-bearing variant",
         ));
     }
-    Ok(quote! { #enum_ident::#variant_ident => ::core::option::Option::None })
+    Ok(quote! { Self::#variant_ident => ::core::option::Option::None })
 }
 
 fn build_named_source_arm(
-    enum_ident: &Ident,
     variant_ident: &Ident,
     fields: &Fields,
     named: &syn::FieldsNamed,
     source_index: Option<usize>,
 ) -> Result<TokenStream> {
     let Some(index) = source_index else {
-        return Ok(quote! { #enum_ident::#variant_ident { .. } => ::core::option::Option::None });
+        return Ok(quote! { Self::#variant_ident { .. } => ::core::option::Option::None });
     };
     let sid = named
         .named
@@ -61,7 +51,7 @@ fn build_named_source_arm(
         .and_then(|f| f.ident.clone())
         .ok_or_else(|| Error::new_spanned(fields, "invalid source field index"))?;
     Ok(quote! {
-        #enum_ident::#variant_ident { #sid, .. } => {
+        Self::#variant_ident { #sid, .. } => {
             let src: &(dyn ::core::error::Error + 'static) = #sid;
             ::core::option::Option::Some(src)
         }
@@ -69,13 +59,12 @@ fn build_named_source_arm(
 }
 
 fn build_unnamed_source_arm(
-    enum_ident: &Ident,
     variant_ident: &Ident,
     unnamed: &syn::FieldsUnnamed,
     source_index: Option<usize>,
 ) -> Result<TokenStream> {
     let Some(index) = source_index else {
-        return Ok(quote! { #enum_ident::#variant_ident(..) => ::core::option::Option::None });
+        return Ok(quote! { Self::#variant_ident(..) => ::core::option::Option::None });
     };
     let binders = (0..unnamed.unnamed.len()).map(|idx| {
         if idx == index {
@@ -85,7 +74,7 @@ fn build_unnamed_source_arm(
         }
     });
     Ok(quote! {
-        #enum_ident::#variant_ident(#(#binders),*) => {
+        Self::#variant_ident(#(#binders),*) => {
             let src: &(dyn ::core::error::Error + 'static) = source;
             ::core::option::Option::Some(src)
         }

@@ -8,47 +8,48 @@ Used to define a series of structured error enums (Error Sets). It automatically
 ### Syntax Definition
 ```rust, ignore
 set! {
-    Ident = { [VariantDecls] } [ | OtherSet ]
+    Ident[<Generics>] [where ...] = { [VariantDecls] } [ | OtherSet[<GenericArgs>] ]
     ...
 }
 ```
 
-
-### Supported Attributes
-| Attribute | Scope | Parameters | Description |
+### Supported Attributes & Generics
+| Attribute/Syntax | Scope | Parameters | Description |
 | :--- | :--- | :--- | :--- |
 | `#[display("...")]`| Variant | Format string | Use `{field}` or `{0}` to reference named fields or anonymous tuple fields |
 | `#[display(transparent)]` | Variant | None | Delegate `Display` directly to the inner field (requires exactly 1 field) |
 | `#[from]` | Variant | None | Mark that this variant can be directly converted from its single field type |
+| Generics & `where` | Error Set | `<T, 'a>` / `where` | Full support for type generics, lifetime parameters, and `where` clauses; subsets/supersets automatically perform type substitution and merge bounds |
 
 ### Core Usage
 ```rust
 use diagweave::set;
+use std::fmt::{Debug, Display};
 
 set! {
-    AuthError = {
+    pub AuthError<T> where T: Display + Debug + Send + Sync + 'static = {
         #[display("user {id} not found")]
-        UserNotFound { id: u64 },
+        UserNotFound { id: T },
         
         #[display(transparent)]
         Io(#[from] std::io::Error),
     }
 
-    ServiceError = AuthError | {
+    pub ServiceError<T> where T: Display + Debug + Send + Sync + 'static = AuthError<T> | {
         #[display("unexpected error")]
         Unknown
     }
 }
 ```
 
-### Generated Methods (Example: `AuthError`)
+### Generated Methods (Example: `AuthError<T>`)
 | Declaration | Return Type | Description |
 | :--- | :--- | :--- |
 | `DiagnosticError::to_report(self)` | `Report<Self>` | (From `DiagnosticError` trait) Converts error instance into a report of the same error type (requires `Self: Sized`). |
 | `DiagnosticError::to_report_trans::<NewE>(self)` | `Report<NewE>` | (From `DiagnosticError` trait) Converts error instance into a report of a different error type (requires `Self: Into<NewE>`). |
 | `DiagnosticError::[builder_method](self, ...)` | `Report<Self, _>` | (From `DiagnosticError` trait) Direct chained diagnostic construction method, bypassing manual conversion |
-| `AuthError::source(&self)` | `Option<&dyn Error>` | Access to the underlying error source |
-| `From<AuthError> for ServiceError` | `ServiceError` | Automatic mapping from subset to superset |
+| `AuthError<T>::source(&self)` | `Option<&dyn Error>` | Access to the underlying error source |
+| `From<AuthError<T>> for ServiceError<T>` | `ServiceError<T>` | Automatic mapping from subset to superset with generic parameters |
 
 ---
 
@@ -61,7 +62,7 @@ Used at architecture boundaries to combine unrelated error types, other error se
 ```rust, ignore
 union! {
     [Attributes]
-    [vis] enum Ident = Item1 | Item2 | ...
+    [vis] enum Ident[<Generics>] [where ...] = Item1 | Item2 | ...
 }
 ```
 
@@ -75,27 +76,26 @@ union! {
 ### Core Usage
 ```rust
 use diagweave::union;
-use std::fmt;
+use std::fmt::{self, Display};
 
 #[derive(Debug)]
-struct AuthError;
+struct AuthError<T>(T);
 
-impl fmt::Display for AuthError {
+impl<T: Display> fmt::Display for AuthError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "auth error")
+        write!(f, "auth error: {}", self.0)
     }
 }
 
-impl std::error::Error for AuthError {}
-impl diagweave::prelude::DiagnosticError for AuthError {}
+impl<T: Display + fmt::Debug> std::error::Error for AuthError<T> {}
 
 union! {
-    pub enum AppError = 
-        AuthError |                     // Uses AuthError as variant name automatically
+    pub enum AppError<T> where T: Display + fmt::Debug + Send + Sync + 'static = 
+        AuthError<T> |                  // Uses AuthError<T> as variant name automatically
         std::io::Error as Io |          // Explicitly named as Io
         {                               // Inline definition
-            #[display("fatal system failure")]
-            Fatal
+            #[display("fatal system failure: {0}")]
+            Fatal(T)
         }
 }
 ```

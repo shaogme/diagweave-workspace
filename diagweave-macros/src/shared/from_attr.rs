@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Attribute, Error, Fields, Ident, Result, Type, Variant};
+use syn::{Attribute, Error, Fields, Result, Type, Variant};
 
 pub(crate) fn is_from_variant(variant: &Variant) -> Result<bool> {
     let mut count = 0;
@@ -41,10 +41,7 @@ fn has_from_attr(attrs: &[Attribute]) -> Result<bool> {
     Ok(has)
 }
 
-pub(crate) fn from_variant_source(
-    enum_ident: &Ident,
-    variant: &Variant,
-) -> Result<(Type, TokenStream)> {
+pub(crate) fn from_variant_source(variant: &Variant) -> Result<(Type, TokenStream)> {
     let variant_ident = &variant.ident;
     match &variant.fields {
         Fields::Unnamed(fields_unnamed) if fields_unnamed.unnamed.len() == 1 => {
@@ -57,7 +54,7 @@ pub(crate) fn from_variant_source(
             Ok((
                 source_ty,
                 quote! {
-                    #enum_ident::#variant_ident(value)
+                    Self::#variant_ident(value)
                 },
             ))
         }

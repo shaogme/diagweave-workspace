@@ -8,47 +8,48 @@
 ### 语法定义
 ```rust, ignore
 set! {
-    Ident = { [VariantDecls] } [ | OtherSet ]
+    Ident[<Generics>] [where ...] = { [VariantDecls] } [ | OtherSet[<GenericArgs>] ]
     ...
 }
 ```
 
-
-### 支持属性 (Attributes)
-| 属性 | 位置 | 参数 | 说明 |
+### 支持属性 (Attributes) 与泛型说明
+| 属性/语法 | 位置 | 参数 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `#[display("...")]` | 变体 | 格式化字符串 | 使用 `{field}` 或 `{0}` 引用命名字段或匿名元组字段 |
 | `#[display(transparent)]` | 变体 | 无 | 直接将内部字段的 `Display` 委托给该变体 (需恰好 1 个字段) |
 | `#[from]` | 变体 | 无 | 标记该变体可从其单字段类型直接转换 (需恰好 1 个字段) |
+| 泛型与 `where` 子句 | 错误集合 | `<T, 'a>` / `where` | 支持类型泛型、生命周期参数及 `where` 约束，子集/超集自动进行类型替换并合并约束 |
 
 ### 核心用法
 ```rust
 use diagweave::set;
+use std::fmt::{Debug, Display};
 
 set! {
-    AuthError = {
+    pub AuthError<T> where T: Display + Debug + Send + Sync + 'static = {
         #[display("user {id} not found")]
-        UserNotFound { id: u64 },
+        UserNotFound { id: T },
         
         #[display(transparent)]
         Io(#[from] std::io::Error),
     }
 
-    ServiceError = AuthError | {
+    pub ServiceError<T> where T: Display + Debug + Send + Sync + 'static = AuthError<T> | {
         #[display("unexpected error")]
         Unknown
     }
 }
 ```
 
-### 生成方法/实现 (以 `AuthError` 为例)
+### 生成方法/实现 (以 `AuthError<T>` 为例)
 | 声明 | 返回类型 | 说明 |
 | :--- | :--- | :--- |
 | `DiagnosticError::to_report(self)` | `Report<Self>` | (来自 `DiagnosticError` trait) 将错误实例转换为当前错误类型的报告 (要求 `Self: Sized`) |
 | `DiagnosticError::to_report_trans::<NewE>(self)` | `Report<NewE>` | (来自 `DiagnosticError` trait) 将错误实例转换为具有不同错误类型的报告 (要求 `Self: Into<NewE>`) |
 | `DiagnosticError::[builder_method](self, ...)` | `Report<Self, _>` | (来自 `DiagnosticError` trait) 直接链式调用诊断构造方法，免去手动 conversion |
-| `AuthError::source(&self)` | `Option<&dyn Error>` | 读取底层 source 错误 |
-| `From<AuthError> for ServiceError` | `ServiceError` | 自动实现子集到超集的映射 |
+| `AuthError<T>::source(&self)` | `Option<&dyn Error>` | 读取底层 source 错误 |
+| `From<AuthError<T>> for ServiceError<T>` | `ServiceError<T>` | 自动实现包含泛型参数的子集到超集映射 |
 
 ---
 
@@ -61,7 +62,7 @@ set! {
 ```rust, ignore
 union! {
     [Attributes]
-    [vis] enum Ident = Item1 | Item2 | ...
+    [vis] enum Ident[<Generics>] [where ...] = Item1 | Item2 | ...
 }
 ```
 
@@ -75,27 +76,26 @@ union! {
 ### 核心用法
 ```rust
 use diagweave::union;
-use std::fmt;
+use std::fmt::{self, Display};
 
 #[derive(Debug)]
-struct AuthError;
+struct AuthError<T>(T);
 
-impl fmt::Display for AuthError {
+impl<T: Display> fmt::Display for AuthError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "auth error")
+        write!(f, "auth error: {}", self.0)
     }
 }
 
-impl std::error::Error for AuthError {}
-impl diagweave::prelude::DiagnosticError for AuthError {}
+impl<T: Display + fmt::Debug> std::error::Error for AuthError<T> {}
 
 union! {
-    pub enum AppError = 
-        AuthError |                     // 自动使用 AuthError 作为变体名
+    pub enum AppError<T> where T: Display + fmt::Debug + Send + Sync + 'static = 
+        AuthError<T> |                  // 自动使用 AuthError 作为变体名
         std::io::Error as Io |          // 显式起名为 Io
         {                               // 内联定义
-            #[display("fatal system failure")]
-            Fatal
+            #[display("fatal system failure: {0}")]
+            Fatal(T)
         }
 }
 ```

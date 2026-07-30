@@ -32,6 +32,7 @@ impl BitSet {
         self.words[word] & mask != 0
     }
 
+    #[allow(dead_code)]
     pub(crate) fn union_with(&mut self, other: &Self) {
         if other.words.len() > self.words.len() {
             self.words.resize(other.words.len(), 0);

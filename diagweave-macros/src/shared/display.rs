@@ -61,7 +61,7 @@ fn display_arm_unit(
         ));
     }
     let expr = display_expr(enum_ident, variant_name, &display, &[])?;
-    Ok(quote! { #enum_ident::#variant_name => { #expr } })
+    Ok(quote! { Self::#variant_name => { #expr } })
 }
 
 fn display_arm_named(
@@ -91,7 +91,7 @@ fn display_arm_named(
         .map(|ident| (ident.to_string(), quote! { #ident }))
         .collect::<Vec<_>>();
     let expr = display_expr(enum_ident, variant_name, &display, &replacements)?;
-    Ok(quote! { #enum_ident::#variant_name { #(#idents),* } => { #expr } })
+    Ok(quote! { Self::#variant_name { #(#idents),* } => { #expr } })
 }
 
 fn display_arm_unnamed(
@@ -115,7 +115,7 @@ fn display_arm_unnamed(
         .map(|(idx, ident)| (idx.to_string(), quote! { #ident }))
         .collect::<Vec<_>>();
     let expr = display_expr(enum_ident, variant_name, &display, &replacements)?;
-    Ok(quote! { #enum_ident::#variant_name(#(#binders),*) => { #expr } })
+    Ok(quote! { Self::#variant_name(#(#binders),*) => { #expr } })
 }
 
 fn display_expr(

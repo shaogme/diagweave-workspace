@@ -24,8 +24,8 @@ fn expand_derive_error(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     let (display_impl, error_source_fn, from_impls) = match &input.data {
-        Data::Enum(data) => expand_enum(&ident, data)?,
-        Data::Struct(data) => expand_struct(&ident, &input.attrs, data)?,
+        Data::Enum(data) => expand_enum(&ident, &generics, data)?,
+        Data::Struct(data) => expand_struct(&ident, &generics, &input.attrs, data)?,
         Data::Union(_) => {
             return Err(Error::new_spanned(
                 &ident,
@@ -61,6 +61,7 @@ fn expand_derive_error(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
 
 fn expand_enum(
     enum_ident: &Ident,
+    generics: &syn::Generics,
     data: &DataEnum,
 ) -> Result<(
     proc_macro2::TokenStream,
@@ -74,7 +75,7 @@ fn expand_enum(
 
     for variant in &data.variants {
         let (display_arm, source_arm, from_impl) =
-            expand_variant(enum_ident, variant, &mut from_types)?;
+            expand_variant(enum_ident, generics, variant, &mut from_types)?;
         display_arms.push(display_arm);
         source_arms.push(source_arm);
         if let Some(fi) = from_impl {
@@ -99,6 +100,7 @@ fn expand_enum(
 
 fn expand_struct(
     ident: &Ident,
+    generics: &syn::Generics,
     attrs: &[Attribute],
     data: &DataStruct,
 ) -> Result<(
@@ -112,12 +114,13 @@ fn expand_struct(
     let display_expr = display::display_expr(&display, ident, &replacements)?;
     let source_expr = source::source_expr_for_struct(&data.fields, &display)?;
 
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let mut from_impls = Vec::new();
     if let Some(from_field) = source::from_field(&data.fields)? {
         let ty = source::field_type(&data.fields, from_field)?;
-        let ctor = codegen::struct_ctor(ident, &data.fields, from_field)?;
+        let ctor = codegen::struct_ctor(&data.fields, from_field)?;
         from_impls.push(quote! {
-            impl ::core::convert::From<#ty> for #ident {
+            impl #impl_generics ::core::convert::From<#ty> for #ident #ty_generics #where_clause {
                 fn from(value: #ty) -> Self {
                     #ctor
                 }
@@ -125,7 +128,7 @@ fn expand_struct(
         });
     }
 
-    let pattern = codegen::struct_pattern(ident, &data.fields, &binding);
+    let pattern = codegen::struct_pattern(&data.fields, &binding);
     Ok((
         quote! {
             match self {
@@ -141,6 +144,7 @@ fn expand_struct(
 
 fn expand_variant(
     enum_ident: &Ident,
+    generics: &syn::Generics,
     variant: &syn::Variant,
     from_types: &mut BTreeMap<String, proc_macro2::Span>,
 ) -> Result<(
@@ -151,28 +155,27 @@ fn expand_variant(
     let display = display::parse_error_display(&variant.attrs, variant.span())?;
     let fields = &variant.fields;
     let binding = codegen::make_bindings(fields)?;
-    let pattern = codegen::variant_pattern(enum_ident, &variant.ident, fields, &binding);
+    let pattern = codegen::variant_pattern(&variant.ident, fields, &binding);
     let replacements = display::replacements(fields, &binding)?;
     let display_expr = display::display_expr(&display, &variant.ident, &replacements)?;
     let display_arm = quote! { #pattern => { #display_expr } };
     let source_arm = source::source_arm_for_variant(&variant.ident, fields, &display)?;
 
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let mut from_impl = None;
     if let Some(from_field) = source::from_field(fields)? {
         let ty = source::field_type(fields, from_field)?;
         let key = quote!(#ty).to_string();
-        if let Some(prev) = from_types.get(&key) {
+        if from_types.contains_key(&key) {
             return Err(Error::new(
                 variant.ident.span(),
-                format!(
-                    "duplicate #[from] source type `{key}` in `{enum_ident}`; previous #[from] span: {prev:?}"
-                ),
+                format!("duplicate #[from] source type `{key}` in `{enum_ident}`"),
             ));
         }
         from_types.insert(key, variant.ident.span());
-        let ctor = codegen::variant_ctor(enum_ident, &variant.ident, fields, from_field)?;
+        let ctor = codegen::variant_ctor(&variant.ident, fields, from_field)?;
         from_impl = Some(quote! {
-            impl ::core::convert::From<#ty> for #enum_ident {
+            impl #impl_generics ::core::convert::From<#ty> for #enum_ident #ty_generics #where_clause {
                 fn from(value: #ty) -> Self { #ctor }
             }
         });

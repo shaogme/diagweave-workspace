@@ -2,10 +2,11 @@ use std::collections::BTreeMap;
 
 use proc_macro2::Span;
 use quote::quote;
-use syn::{Attribute, Error, Ident, Result, Variant};
+use syn::visit_mut::{self, VisitMut};
+use syn::{Attribute, Error, GenericArgument, GenericParam, Ident, Result, Variant};
 
 use crate::set::bitset::{BitSet, SymbolTable};
-use crate::set::parser::{InlineVariants, SetDecl, UnionTerm};
+use crate::set::parser::{InlineVariants, SetDecl, SetRef, UnionTerm};
 
 #[derive(Clone)]
 pub(crate) struct VariantIdentity {
@@ -25,6 +26,7 @@ pub(crate) struct ResolvedSet {
     pub(crate) attrs: Vec<Attribute>,
     pub(crate) vis: syn::Visibility,
     pub(crate) name: Ident,
+    pub(crate) generics: syn::Generics,
     pub(crate) variants: Vec<ResolvedVariant>,
     pub(crate) members: BitSet,
 }
@@ -100,6 +102,7 @@ pub(crate) fn resolve_set(
             attrs: decl.attrs.clone(),
             vis: decl.vis.clone(),
             name: decl.name.clone(),
+            generics: decl.generics.clone(),
             variants,
             members,
         },
@@ -142,16 +145,16 @@ impl<'a> ResolveContext<'a> {
 
     fn resolve_term(&mut self, term: &UnionTerm) -> Result<()> {
         match term {
-            UnionTerm::SetRef(ident) => self.resolve_set_ref(ident),
+            UnionTerm::SetRef(set_ref) => self.resolve_set_ref(set_ref),
             UnionTerm::Inline(inline) => self.resolve_inline(inline),
         }
     }
 
-    fn resolve_set_ref(&mut self, ident: &Ident) -> Result<()> {
-        let ref_name = ident.to_string();
+    fn resolve_set_ref(&mut self, set_ref: &SetRef) -> Result<()> {
+        let ref_name = set_ref.name.to_string();
         if !self.decls.contains_key(&ref_name) {
             return Err(Error::new_spanned(
-                ident,
+                &set_ref.name,
                 format!("referenced undefined set `{ref_name}`"),
             ));
         }
@@ -162,16 +165,64 @@ impl<'a> ResolveContext<'a> {
             self.stack,
             self.symbol_table,
         )?;
-        let (source_members, source_variants) = {
+        let (source_generics, source_variants) = {
             let source = self
                 .resolved
                 .get(&ref_name)
-                .ok_or_else(|| Error::new(ident.span(), "source set should be resolved"))?;
-            (source.members.clone(), source.variants.clone())
+                .ok_or_else(|| Error::new(set_ref.name.span(), "source set should be resolved"))?;
+            (source.generics.clone(), source.variants.clone())
         };
-        self.members.union_with(&source_members);
-        for variant in source_variants {
-            self.try_push_variant(variant)?;
+
+        let mut type_map = BTreeMap::<Ident, syn::Type>::new();
+        let mut lifetime_map = BTreeMap::<syn::Lifetime, syn::Lifetime>::new();
+
+        if let Some(args) = &set_ref.args {
+            let mut arg_iter = args.args.iter();
+            for param in &source_generics.params {
+                match param {
+                    GenericParam::Type(type_param) => {
+                        if let Some(arg) = arg_iter.next() {
+                            if let GenericArgument::Type(ty) = arg {
+                                type_map.insert(type_param.ident.clone(), ty.clone());
+                            }
+                        }
+                    }
+                    GenericParam::Lifetime(lifetime_param) => {
+                        if let Some(arg) = arg_iter.next() {
+                            if let GenericArgument::Lifetime(lt) = arg {
+                                lifetime_map.insert(lifetime_param.lifetime.clone(), lt.clone());
+                            }
+                        }
+                    }
+                    GenericParam::Const(_) => {}
+                }
+            }
+        } else {
+            for param in &source_generics.params {
+                if let GenericParam::Type(type_param) = param {
+                    let id = &type_param.ident;
+                    type_map.insert(id.clone(), syn::parse_quote!(#id));
+                } else if let GenericParam::Lifetime(lifetime_param) = param {
+                    let lt = &lifetime_param.lifetime;
+                    lifetime_map.insert(lt.clone(), lt.clone());
+                }
+            }
+        }
+
+        for var in source_variants {
+            let mut substituted_variant = var.variant.clone();
+            substitute_generics(&mut substituted_variant, &type_map, &lifetime_map);
+            let sig = variant_signature(&substituted_variant);
+            let sym = self.symbol_table.intern(sig.clone());
+            let res = ResolvedVariant {
+                symbol: sym,
+                identity: VariantIdentity {
+                    name: substituted_variant.ident.to_string(),
+                    signature: sig,
+                },
+                variant: substituted_variant,
+            };
+            self.try_push_variant(res)?;
         }
         Ok(())
     }
@@ -192,6 +243,48 @@ impl<'a> ResolveContext<'a> {
         }
         Ok(())
     }
+}
+
+struct GenericSubstitutor<'a> {
+    type_map: &'a BTreeMap<Ident, syn::Type>,
+    lifetime_map: &'a BTreeMap<syn::Lifetime, syn::Lifetime>,
+}
+
+impl<'b> VisitMut for GenericSubstitutor<'b> {
+    fn visit_type_mut(&mut self, ty: &mut syn::Type) {
+        if let syn::Type::Path(type_path) = ty {
+            if type_path.qself.is_none() && type_path.path.segments.len() == 1 {
+                let ident = &type_path.path.segments[0].ident;
+                if let Some(replacement) = self.type_map.get(ident) {
+                    *ty = replacement.clone();
+                    return;
+                }
+            }
+        }
+        visit_mut::visit_type_mut(self, ty);
+    }
+
+    fn visit_lifetime_mut(&mut self, lifetime: &mut syn::Lifetime) {
+        if let Some(replacement) = self.lifetime_map.get(lifetime) {
+            *lifetime = replacement.clone();
+        }
+        visit_mut::visit_lifetime_mut(self, lifetime);
+    }
+}
+
+fn substitute_generics(
+    variant: &mut Variant,
+    type_map: &BTreeMap<Ident, syn::Type>,
+    lifetime_map: &BTreeMap<syn::Lifetime, syn::Lifetime>,
+) {
+    if type_map.is_empty() && lifetime_map.is_empty() {
+        return;
+    }
+    let mut substitutor = GenericSubstitutor {
+        type_map,
+        lifetime_map,
+    };
+    substitutor.visit_variant_mut(variant);
 }
 
 pub(crate) fn variant_signature(variant: &Variant) -> String {
